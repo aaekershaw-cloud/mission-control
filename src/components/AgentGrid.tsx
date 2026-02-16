@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users } from 'lucide-react';
+import { Users, Plus } from 'lucide-react';
 import { Agent, AgentStatus, AGENT_STATUS_CONFIG } from '@/types';
 import AgentCard from './AgentCard';
 
 interface AgentGridProps {
   agents: Agent[];
   onAgentClick: (agent: Agent) => void;
+  onCreateAgent?: () => void;
 }
 
 type FilterStatus = 'all' | AgentStatus;
@@ -21,7 +22,7 @@ const filters: { key: FilterStatus; label: string }[] = [
   { key: 'offline', label: 'Offline' },
 ];
 
-export default function AgentGrid({ agents, onAgentClick }: AgentGridProps) {
+export default function AgentGrid({ agents, onAgentClick, onCreateAgent }: AgentGridProps) {
   const [filter, setFilter] = useState<FilterStatus>('all');
 
   const filtered =
@@ -41,8 +42,17 @@ export default function AgentGrid({ agents, onAgentClick }: AgentGridProps) {
           </span>
         </div>
 
-        {/* Filters */}
+        {/* Create + Filters */}
         <div className="flex items-center gap-1">
+          {onCreateAgent && (
+            <button
+              onClick={onCreateAgent}
+              className="flex items-center gap-1.5 px-3 py-1.5 mr-2 rounded-lg text-xs font-medium text-slate-900 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 transition-all shadow-sm shadow-emerald-500/20"
+            >
+              <Plus size={12} />
+              Create Agent
+            </button>
+          )}
           {filters.map((f) => {
             const isActive = filter === f.key;
             const count =

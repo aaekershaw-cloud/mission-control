@@ -10,6 +10,7 @@ import TaskBoard from '@/components/TaskBoard';
 import ActivityFeed from '@/components/ActivityFeed';
 import HeartbeatMonitor from '@/components/HeartbeatMonitor';
 import AgentDetail from '@/components/AgentDetail';
+import AgentFormModal from '@/components/AgentFormModal';
 import SquadDesigner from '@/components/SquadDesigner';
 import CommandPalette from '@/components/CommandPalette';
 import ProviderConfig from '@/components/ProviderConfig';
@@ -36,6 +37,7 @@ export default function MissionControl() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [agentFormOpen, setAgentFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -83,38 +85,40 @@ export default function MissionControl() {
       }
       if (e.key === 'Escape') {
         setCommandPaletteOpen(false);
-        setSelectedAgent(null);
+        if (!agentFormOpen) {
+          setSelectedAgent(null);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [agentFormOpen]);
 
-  const handleNewAgent = async () => {
-    const name = prompt('Agent name:');
-    if (!name) return;
-    const role = prompt('Agent role:') || 'General Purpose';
-    const codename = name.toUpperCase().replace(/\s+/g, '-');
+  const handleNewAgent = () => {
+    setAgentFormOpen(true);
+  };
 
+  const handleCreateAgent = async (agentData: {
+    name: string;
+    codename: string;
+    avatar: string;
+    role: string;
+    personality: string;
+    soul: string;
+    provider: string;
+    model: string;
+  }) => {
     try {
       await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          codename,
-          role,
-          avatar: '🤖',
-          personality: '',
-          soul: `# ${codename}\\n\\nYou are ${name}, a ${role}.`,
-          provider: 'kimi-k2.5',
-          model: 'moonshotai/kimi-k2.5',
-        }),
+        body: JSON.stringify(agentData),
       });
       fetchData();
     } catch (error) {
       console.error('Failed to create agent:', error);
     }
+    setAgentFormOpen(false);
   };
 
   const handleNewTask = async () => {
@@ -166,9 +170,22 @@ export default function MissionControl() {
         body: JSON.stringify(updatedAgent),
       });
       fetchData();
-      setSelectedAgent(null);
+      // Don't close modal for status changes, only for full saves
+      if ('name' in updatedAgent || 'soul' in updatedAgent) {
+        setSelectedAgent(null);
+      }
     } catch (error) {
       console.error('Failed to update agent:', error);
+    }
+  };
+
+  const handleAgentDelete = async (agentId: string) => {
+    try {
+      await fetch(`/api/agents/${agentId}`, { method: 'DELETE' });
+      fetchData();
+      setSelectedAgent(null);
+    } catch (error) {
+      console.error('Failed to delete agent:', error);
     }
   };
 
@@ -185,9 +202,38 @@ export default function MissionControl() {
     }
   };
 
+  const handleUpdateSquad = async (squadId: string, data: Partial<Squad>) => {
+    try {
+      await fetch(`/api/squads/${squadId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      fetchData();
+    } catch (error) {
+      console.error('Failed to update squad:', error);
+    }
+  };
+
+  const handleDisbandSquad = async (squadId: string) => {
+    try {
+      await fetch(`/api/squads/${squadId}`, { method: 'DELETE' });
+      fetchData();
+    } catch (error) {
+      console.error('Failed to disband squad:', error);
+    }
+  };
+
+  const handleNavigate = (tab: string, itemId?: string) => {
+    setActiveTab(tab as TabId);
+    if (tab === 'agents' && itemId) {
+      const agent = agents.find(a => a.id === itemId);
+      if (agent) setSelectedAgent(agent);
+    }
+  };
+
   const handleCommand = (command: string) => {
     setCommandPaletteOpen(false);
-    // Handle both "tab:dashboard" and "dashboard" formats
     const cmd = command.replace('tab:', '').replace('create:', 'new-').replace('toggle:', 'toggle-');
     switch (cmd) {
       case 'dashboard': case 'agents': case 'tasks': case 'comms': case 'analytics': case 'squads': case 'config':
@@ -210,6 +256,9 @@ export default function MissionControl() {
         break;
     }
   };
+
+  // Count unread messages for notification badge
+  const unreadCount = messages.filter(m => !m.read).length;
 
   const metrics = analytics ? {
     totalAgents: analytics.totalAgents,
@@ -246,7 +295,7 @@ export default function MissionControl() {
             <MetricsPanel metrics={metrics} />
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="xl:col-span-2">
-                <AgentGrid agents={agents} onAgentClick={setSelectedAgent} />
+                <AgentGrid agents={agents} onAgentClick={setSelectedAgent} onCreateAgent={handleNewAgent} />
               </div>
               <div className="space-y-6">
                 <HeartbeatMonitor agents={agents} />
@@ -258,7 +307,7 @@ export default function MissionControl() {
       case 'agents':
         return (
           <div className="h-full overflow-y-auto pr-2 pb-6">
-            <AgentGrid agents={agents} onAgentClick={setSelectedAgent} />
+            <AgentGrid agents={agents} onAgentClick={setSelectedAgent} onCreateAgent={handleNewAgent} />
           </div>
         );
       case 'tasks':
@@ -312,7 +361,13 @@ export default function MissionControl() {
       case 'squads':
         return (
           <div className="h-full overflow-y-auto pr-2 pb-6">
-            <SquadDesigner agents={agents} squads={squads} onCreateSquad={handleCreateSquad} />
+            <SquadDesigner
+              agents={agents}
+              squads={squads}
+              onCreateSquad={handleCreateSquad}
+              onUpdateSquad={handleUpdateSquad}
+              onDisbandSquad={handleDisbandSquad}
+            />
           </div>
         );
       case 'config':
@@ -339,6 +394,40 @@ export default function MissionControl() {
           title={TAB_TITLES[activeTab]}
           onNewAgent={handleNewAgent}
           onNewTask={handleNewTask}
+          messages={messages}
+          agents={agents}
+          tasks={tasks}
+          unreadCount={unreadCount}
+          onNavigate={handleNavigate}
+          onMarkRead={async (messageId: string) => {
+            try {
+              await fetch(`/api/messages/${messageId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ read: true }),
+              });
+              fetchData();
+            } catch (error) {
+              console.error('Failed to mark message as read:', error);
+            }
+          }}
+          onMarkAllRead={async () => {
+            try {
+              const unread = messages.filter(m => !m.read);
+              await Promise.all(
+                unread.map(m =>
+                  fetch(`/api/messages/${m.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ read: true }),
+                  })
+                )
+              );
+              fetchData();
+            } catch (error) {
+              console.error('Failed to mark all messages as read:', error);
+            }
+          }}
         />
         <main className="flex-1 p-6 min-h-0">
           {renderContent()}
@@ -350,6 +439,14 @@ export default function MissionControl() {
           agent={selectedAgent}
           onClose={() => setSelectedAgent(null)}
           onUpdate={handleAgentUpdate}
+          onDelete={handleAgentDelete}
+        />
+      )}
+
+      {agentFormOpen && (
+        <AgentFormModal
+          onClose={() => setAgentFormOpen(false)}
+          onSave={handleCreateAgent}
         />
       )}
 

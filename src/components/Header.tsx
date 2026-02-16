@@ -1,18 +1,69 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Search, Bell, Plus, ListPlus, Clock } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Search,
+  Bell,
+  Plus,
+  ListPlus,
+  Clock,
+  User,
+  KanbanSquare,
+  MessageSquare,
+} from 'lucide-react';
+import { Agent, Task, Message } from '@/types';
+import NotificationPanel from './NotificationPanel';
+
+interface SearchResult {
+  type: 'agent' | 'task' | 'message';
+  id: string;
+  title: string;
+  subtitle: string;
+}
 
 interface HeaderProps {
   title: string;
   onNewAgent: () => void;
   onNewTask: () => void;
+  messages?: Message[];
+  agents?: Agent[];
+  tasks?: Task[];
+  unreadCount?: number;
+  onNavigate?: (tab: string, itemId?: string) => void;
+  onMarkRead?: (messageId: string) => void;
+  onMarkAllRead?: () => void;
 }
 
-export default function Header({ title, onNewAgent, onNewTask }: HeaderProps) {
+const resultTypeIcon = {
+  agent: User,
+  task: KanbanSquare,
+  message: MessageSquare,
+};
+
+const resultTypeColor = {
+  agent: 'text-emerald-400',
+  task: 'text-amber-400',
+  message: 'text-cyan-400',
+};
+
+export default function Header({
+  title,
+  onNewAgent,
+  onNewTask,
+  messages = [],
+  unreadCount = 0,
+  onNavigate,
+  onMarkRead,
+  onMarkAllRead,
+}: HeaderProps) {
   const [time, setTime] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     const updateTime = () => {
@@ -30,6 +81,60 @@ export default function Header({ title, onNewAgent, onNewTask }: HeaderProps) {
     return () => clearInterval(interval);
   }, []);
 
+  // Close search dropdown on click outside
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const doSearch = useCallback(async (q: string) => {
+    if (q.length < 2) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data);
+        setSearchOpen(data.length > 0);
+      }
+    } catch (err) {
+      console.error('Search failed:', err);
+    }
+  }, []);
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(value), 300);
+  };
+
+  const handleResultClick = (result: SearchResult) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    if (!onNavigate) return;
+
+    switch (result.type) {
+      case 'agent':
+        onNavigate('agents', result.id);
+        break;
+      case 'task':
+        onNavigate('tasks', result.id);
+        break;
+      case 'message':
+        onNavigate('comms', result.id);
+        break;
+    }
+  };
+
   return (
     <motion.header
       initial={{ opacity: 0, y: -10 }}
@@ -43,7 +148,7 @@ export default function Header({ title, onNewAgent, onNewTask }: HeaderProps) {
       {/* Right section */}
       <div className="flex items-center gap-3">
         {/* Search */}
-        <div className="relative">
+        <div ref={searchRef} className="relative">
           <Search
             size={16}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
@@ -52,16 +157,76 @@ export default function Header({ title, onNewAgent, onNewTask }: HeaderProps) {
             type="text"
             placeholder="Search..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onFocus={() => {
+              if (searchResults.length > 0) setSearchOpen(true);
+            }}
             className="glass-sm pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 w-56 outline-none focus:border-emerald-500/30 transition-colors"
           />
+
+          {/* Search Results Dropdown */}
+          <AnimatePresence>
+            {searchOpen && searchResults.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15 }}
+                className="absolute top-full mt-2 left-0 right-0 glass gradient-border rounded-xl overflow-hidden z-50 shadow-2xl shadow-black/50"
+              >
+                {searchResults.map((result) => {
+                  const Icon = resultTypeIcon[result.type];
+                  return (
+                    <button
+                      key={`${result.type}-${result.id}`}
+                      onClick={() => handleResultClick(result)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+                    >
+                      <Icon
+                        size={14}
+                        className={resultTypeColor[result.type]}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-200 truncate">
+                          {result.title}
+                        </p>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {result.subtitle}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-slate-600 uppercase shrink-0">
+                        {result.type}
+                      </span>
+                    </button>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Notification bell */}
-        <button className="relative p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors">
-          <Bell size={18} />
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400" />
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setNotificationsOpen((prev) => !prev)}
+            className="relative p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors"
+          >
+            <Bell size={18} />
+            {unreadCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-emerald-400 text-[10px] font-bold text-slate-900 px-1">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          <NotificationPanel
+            isOpen={notificationsOpen}
+            onClose={() => setNotificationsOpen(false)}
+            messages={messages}
+            onMarkRead={onMarkRead || (() => {})}
+            onMarkAllRead={onMarkAllRead || (() => {})}
+          />
+        </div>
 
         {/* Time */}
         <div className="flex items-center gap-1.5 text-sm text-slate-500 font-mono px-2">

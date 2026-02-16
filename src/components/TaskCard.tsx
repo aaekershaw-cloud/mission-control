@@ -10,6 +10,7 @@ import { formatDistanceToNow } from 'date-fns';
 interface TaskCardProps {
   task: Task;
   overlay?: boolean;
+  onClick?: (task: Task) => void;
 }
 
 const priorityDotColors: Record<string, string> = {
@@ -19,7 +20,7 @@ const priorityDotColors: Record<string, string> = {
   low: 'bg-blue-400',
 };
 
-export default function TaskCard({ task, overlay = false }: TaskCardProps) {
+export default function TaskCard({ task, overlay = false, onClick }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -61,7 +62,13 @@ export default function TaskCard({ task, overlay = false }: TaskCardProps) {
           <GripVertical size={14} />
         </div>
 
-        <div className="flex-1 min-w-0">
+        <div
+          className="flex-1 min-w-0 cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick?.(task);
+          }}
+        >
           {/* Priority & Title */}
           <div className="flex items-center gap-2 mb-1.5">
             <span

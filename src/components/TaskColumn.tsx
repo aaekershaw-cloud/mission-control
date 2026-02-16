@@ -13,6 +13,8 @@ interface TaskColumnProps {
   status: TaskStatus;
   tasks: Task[];
   title: string;
+  onAddTask?: (status: TaskStatus) => void;
+  onTaskClick?: (task: Task) => void;
 }
 
 const headerAccent: Record<TaskStatus, string> = {
@@ -23,7 +25,7 @@ const headerAccent: Record<TaskStatus, string> = {
   done: 'border-t-emerald-500',
 };
 
-export default function TaskColumn({ status, tasks, title }: TaskColumnProps) {
+export default function TaskColumn({ status, tasks, title, onAddTask, onTaskClick }: TaskColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const config = TASK_STATUS_CONFIG[status];
 
@@ -55,7 +57,7 @@ export default function TaskColumn({ status, tasks, title }: TaskColumnProps) {
           strategy={verticalListSortingStrategy}
         >
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} />
+            <TaskCard key={task.id} task={task} onClick={onTaskClick} />
           ))}
         </SortableContext>
 
@@ -67,7 +69,10 @@ export default function TaskColumn({ status, tasks, title }: TaskColumnProps) {
       </div>
 
       {/* Add button */}
-      <button className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors border-t border-white/5 rounded-b-2xl">
+      <button
+        onClick={() => onAddTask?.(status)}
+        className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors border-t border-white/5 rounded-b-2xl"
+      >
         <Plus size={14} />
         Add Task
       </button>

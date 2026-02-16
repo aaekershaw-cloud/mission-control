@@ -14,16 +14,23 @@ import {
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { motion } from 'framer-motion';
-import { Task, TaskStatus, TASK_STATUS_CONFIG } from '@/types';
+import { Task, TaskStatus, Agent, TASK_STATUS_CONFIG } from '@/types';
 import TaskColumn from './TaskColumn';
 import TaskCard from './TaskCard';
+import TaskDetailModal from './TaskDetailModal';
 
 const columns: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
 
 export default function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Modal state
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [createWithStatus, setCreateWithStatus] = useState<TaskStatus | undefined>(undefined);
+  const modalOpen = selectedTask !== null || createWithStatus !== undefined;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -43,9 +50,90 @@ export default function TaskBoard() {
     }
   }, []);
 
+  const fetchAgents = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agents');
+      if (res.ok) {
+        const data = await res.json();
+        setAgents(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch agents:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+    fetchAgents();
+  }, [fetchTasks, fetchAgents]);
+
+  const handleAddTask = (status: TaskStatus) => {
+    setCreateWithStatus(status);
+  };
+
+  const handleTaskClick = (task: Task) => {
+    setSelectedTask(task);
+  };
+
+  const handleModalClose = () => {
+    setSelectedTask(null);
+    setCreateWithStatus(undefined);
+  };
+
+  const handleTaskSave = async (taskData: Partial<Task> & { id: string }) => {
+    try {
+      if (taskData.id === '__new__') {
+        // Create new task
+        const res = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: taskData.title,
+            description: taskData.description,
+            status: taskData.status,
+            priority: taskData.priority,
+            assigneeId: taskData.assigneeId,
+            tags: taskData.tags || [],
+          }),
+        });
+        if (res.ok) {
+          fetchTasks();
+        }
+      } else {
+        // Update existing task
+        const res = await fetch(`/api/tasks/${taskData.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: taskData.title,
+            description: taskData.description,
+            status: taskData.status,
+            priority: taskData.priority,
+            assigneeId: taskData.assigneeId,
+            tags: taskData.tags || [],
+          }),
+        });
+        if (res.ok) {
+          fetchTasks();
+        }
+      }
+    } catch (err) {
+      console.error('Failed to save task:', err);
+    }
+    handleModalClose();
+  };
+
+  const handleTaskDelete = async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchTasks();
+      }
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+    }
+    handleModalClose();
+  };
 
   const updateTaskStatus = async (taskId: string, status: TaskStatus) => {
     try {
@@ -71,12 +159,12 @@ export default function TaskBoard() {
     const activeId = active.id as string;
     const overId = over.id as string;
 
-    const activeTask = tasks.find((t) => t.id === activeId);
-    if (!activeTask) return;
+    const draggedTask = tasks.find((t) => t.id === activeId);
+    if (!draggedTask) return;
 
     // Dropped over a column directly
     if (columns.includes(overId as TaskStatus)) {
-      if (activeTask.status !== overId) {
+      if (draggedTask.status !== overId) {
         setTasks((prev) =>
           prev.map((t) =>
             t.id === activeId ? { ...t, status: overId as TaskStatus } : t
@@ -88,7 +176,7 @@ export default function TaskBoard() {
 
     // Dropped over another task
     const overTask = tasks.find((t) => t.id === overId);
-    if (overTask && activeTask.status !== overTask.status) {
+    if (overTask && draggedTask.status !== overTask.status) {
       setTasks((prev) =>
         prev.map((t) =>
           t.id === activeId ? { ...t, status: overTask.status } : t
@@ -137,32 +225,47 @@ export default function TaskBoard() {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="flex gap-4 overflow-x-auto pb-4 h-full"
-    >
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="flex gap-4 overflow-x-auto pb-4 h-full"
       >
-        {columns.map((status) => (
-          <TaskColumn
-            key={status}
-            status={status}
-            title={TASK_STATUS_CONFIG[status].label}
-            tasks={tasks.filter((t) => t.status === status)}
-          />
-        ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          {columns.map((status) => (
+            <TaskColumn
+              key={status}
+              status={status}
+              title={TASK_STATUS_CONFIG[status].label}
+              tasks={tasks.filter((t) => t.status === status)}
+              onAddTask={handleAddTask}
+              onTaskClick={handleTaskClick}
+            />
+          ))}
 
-        <DragOverlay>
-          {activeTask ? <TaskCard task={activeTask} overlay /> : null}
-        </DragOverlay>
-      </DndContext>
-    </motion.div>
+          <DragOverlay>
+            {activeTask ? <TaskCard task={activeTask} overlay /> : null}
+          </DragOverlay>
+        </DndContext>
+      </motion.div>
+
+      {modalOpen && (
+        <TaskDetailModal
+          task={selectedTask}
+          agents={agents}
+          onClose={handleModalClose}
+          onSave={handleTaskSave}
+          onDelete={handleTaskDelete}
+          createWithStatus={createWithStatus}
+        />
+      )}
+    </>
   );
 }

@@ -1,15 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Edit3, Save, Clock, Zap, Coins, CheckCircle2, Cpu } from 'lucide-react';
-import { Agent } from '@/types';
+import {
+  X,
+  Edit3,
+  Save,
+  Clock,
+  Zap,
+  Coins,
+  CheckCircle2,
+  Cpu,
+  Trash2,
+  AlertTriangle,
+  Wifi,
+  WifiOff,
+  Loader,
+} from 'lucide-react';
+import { Agent, AgentStatus } from '@/types';
 import StatusBadge from './StatusBadge';
 
 interface AgentDetailProps {
   agent: Agent;
   onClose: () => void;
-  onUpdate: (agent: Agent) => void;
+  onUpdate: (agent: Partial<Agent> & { id: string }) => void;
+  onDelete?: (agentId: string) => void;
 }
 
 function formatTokens(n: number): string {
@@ -25,13 +40,74 @@ const providerColors: Record<string, string> = {
   custom: 'bg-slate-500/15 text-slate-400 border-slate-500/20',
 };
 
-export default function AgentDetail({ agent, onClose, onUpdate }: AgentDetailProps) {
+const statusButtons: { status: AgentStatus; icon: typeof Wifi; label: string }[] = [
+  { status: 'online', icon: Wifi, label: 'Online' },
+  { status: 'busy', icon: Loader, label: 'Busy' },
+  { status: 'offline', icon: WifiOff, label: 'Offline' },
+];
+
+const statusButtonColors: Record<AgentStatus, string> = {
+  online: 'text-emerald-400 hover:bg-emerald-500/15 border-emerald-500/30',
+  busy: 'text-amber-400 hover:bg-amber-500/15 border-amber-500/30',
+  idle: 'text-blue-400 hover:bg-blue-500/15 border-blue-500/30',
+  offline: 'text-slate-400 hover:bg-slate-500/15 border-slate-500/30',
+  error: 'text-red-400 hover:bg-red-500/15 border-red-500/30',
+};
+
+export default function AgentDetail({ agent, onClose, onUpdate, onDelete }: AgentDetailProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Editable fields
+  const [name, setName] = useState(agent.name);
+  const [codename, setCodename] = useState(agent.codename);
+  const [avatar, setAvatar] = useState(agent.avatar);
+  const [role, setRole] = useState(agent.role);
+  const [personality, setPersonality] = useState(agent.personality || '');
   const [soulContent, setSoulContent] = useState(agent.soul || '');
 
-  function handleSave() {
-    onUpdate({ ...agent, soul: soulContent });
+  useEffect(() => {
+    setName(agent.name);
+    setCodename(agent.codename);
+    setAvatar(agent.avatar);
+    setRole(agent.role);
+    setPersonality(agent.personality || '');
+    setSoulContent(agent.soul || '');
     setIsEditing(false);
+    setConfirmDelete(false);
+  }, [agent]);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  function handleSave() {
+    onUpdate({
+      id: agent.id,
+      name: name.trim(),
+      codename: codename.trim(),
+      avatar,
+      role: role.trim(),
+      personality: personality.trim(),
+      soul: soulContent,
+    });
+    setIsEditing(false);
+  }
+
+  function handleStatusChange(status: AgentStatus) {
+    onUpdate({ id: agent.id, status });
+  }
+
+  function handleDelete() {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    onDelete?.(agent.id);
   }
 
   return (
@@ -55,10 +131,40 @@ export default function AgentDetail({ agent, onClose, onUpdate }: AgentDetailPro
           {/* Header */}
           <div className="flex items-start justify-between p-6 border-b border-white/5">
             <div className="flex items-center gap-4">
-              <div className="text-5xl">{agent.avatar}</div>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={avatar}
+                  onChange={(e) => setAvatar(e.target.value)}
+                  className="text-5xl w-16 h-16 text-center glass-sm outline-none focus:border-emerald-500/30"
+                />
+              ) : (
+                <div className="text-5xl">{agent.avatar}</div>
+              )}
               <div>
-                <h2 className="text-lg font-bold text-slate-100">{agent.name}</h2>
-                <p className="text-sm text-slate-500 font-mono">@{agent.codename}</p>
+                {isEditing ? (
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="glass-sm px-2 py-1 text-lg font-bold text-slate-100 outline-none focus:border-emerald-500/30 transition-colors w-full"
+                      placeholder="Agent name"
+                    />
+                    <input
+                      type="text"
+                      value={codename}
+                      onChange={(e) => setCodename(e.target.value)}
+                      className="glass-sm px-2 py-1 text-sm text-slate-500 font-mono outline-none focus:border-emerald-500/30 transition-colors w-full"
+                      placeholder="CODENAME"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="text-lg font-bold text-slate-100">{agent.name}</h2>
+                    <p className="text-sm text-slate-500 font-mono">@{agent.codename}</p>
+                  </>
+                )}
                 <div className="mt-1.5 flex items-center gap-2">
                   <StatusBadge status={agent.status} size="sm" />
                   {agent.lastHeartbeat && (
@@ -74,6 +180,7 @@ export default function AgentDetail({ agent, onClose, onUpdate }: AgentDetailPro
               <button
                 onClick={() => (isEditing ? handleSave() : setIsEditing(true))}
                 className="p-2 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-white/5 transition-all"
+                title={isEditing ? 'Save changes' : 'Edit agent'}
               >
                 {isEditing ? <Save size={18} /> : <Edit3 size={18} />}
               </button>
@@ -86,6 +193,29 @@ export default function AgentDetail({ agent, onClose, onUpdate }: AgentDetailPro
             </div>
           </div>
 
+          {/* Quick Status Toggles */}
+          <div className="px-6 pt-4">
+            <label className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2 block">
+              Quick Status
+            </label>
+            <div className="flex items-center gap-2">
+              {statusButtons.map(({ status, icon: Icon, label }) => (
+                <button
+                  key={status}
+                  onClick={() => handleStatusChange(status)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    agent.status === status
+                      ? `${statusButtonColors[status]} bg-white/5`
+                      : 'text-slate-500 border-transparent hover:border-white/10'
+                  }`}
+                >
+                  <Icon size={12} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Body */}
           <div className="p-6 space-y-6">
             {/* Role & Personality */}
@@ -94,13 +224,33 @@ export default function AgentDetail({ agent, onClose, onUpdate }: AgentDetailPro
                 <label className="text-xs text-slate-500 uppercase tracking-wider font-medium">
                   Role
                 </label>
-                <p className="text-sm text-slate-200 mt-1">{agent.role}</p>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full mt-1 glass-sm px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500/30 transition-colors"
+                    placeholder="Agent role"
+                  />
+                ) : (
+                  <p className="text-sm text-slate-200 mt-1">{agent.role}</p>
+                )}
               </div>
               <div>
                 <label className="text-xs text-slate-500 uppercase tracking-wider font-medium">
                   Personality
                 </label>
-                <p className="text-sm text-slate-400 mt-1">{agent.personality}</p>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={personality}
+                    onChange={(e) => setPersonality(e.target.value)}
+                    className="w-full mt-1 glass-sm px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500/30 transition-colors"
+                    placeholder="Personality description"
+                  />
+                ) : (
+                  <p className="text-sm text-slate-400 mt-1">{agent.personality || 'No personality set'}</p>
+                )}
               </div>
             </div>
 
@@ -174,6 +324,32 @@ export default function AgentDetail({ agent, onClose, onUpdate }: AgentDetailPro
               </div>
             )}
           </div>
+
+          {/* Footer with Delete */}
+          {onDelete && (
+            <div className="px-6 pb-6">
+              <button
+                onClick={handleDelete}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                  confirmDelete
+                    ? 'text-red-300 bg-red-500/20 border border-red-500/40'
+                    : 'text-red-400 hover:bg-red-500/10 border border-red-500/30'
+                }`}
+              >
+                {confirmDelete ? (
+                  <>
+                    <AlertTriangle size={14} />
+                    Confirm Delete Agent
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    Delete Agent
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>
