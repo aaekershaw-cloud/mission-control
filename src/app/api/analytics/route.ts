@@ -74,12 +74,16 @@ export async function GET() {
 
     const timelineMap = new Map<string, { tasks: number; messages: number }>();
 
-    // Initialize all 24 hours
+    // Initialize all 24 hours (using UTC to match SQLite datetime())
     for (let i = 23; i >= 0; i--) {
       const d = new Date();
-      d.setMinutes(0, 0, 0);
-      d.setHours(d.getHours() - i);
-      const key = d.toISOString().replace(/:\d{2}\.\d{3}Z$/, ':00:00');
+      d.setUTCMinutes(0, 0, 0);
+      d.setUTCHours(d.getUTCHours() - i);
+      const year = d.getUTCFullYear();
+      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      const hour = String(d.getUTCHours()).padStart(2, '0');
+      const key = `${year}-${month}-${day}T${hour}:00:00`;
       timelineMap.set(key, { tasks: 0, messages: 0 });
     }
 

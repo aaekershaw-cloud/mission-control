@@ -88,6 +88,23 @@ export async function PUT(
       setClauses.push('agent_ids = ?');
       values.push(JSON.stringify(body.agentIds));
 
+      // Remove new agents from their previous squads' agent_ids lists
+      if (body.agentIds.length > 0) {
+        const placeholders = body.agentIds.map(() => '?').join(',');
+        const previousSquads = db.prepare(
+          `SELECT DISTINCT squad_id FROM agents WHERE squad_id IS NOT NULL AND squad_id != ? AND id IN (${placeholders})`
+        ).all(id, ...body.agentIds) as Array<{ squad_id: string }>;
+
+        for (const { squad_id: oldSquadId } of previousSquads) {
+          const oldSquad = db.prepare('SELECT agent_ids FROM squads WHERE id = ?').get(oldSquadId) as { agent_ids: string } | undefined;
+          if (oldSquad) {
+            const oldList: string[] = JSON.parse(oldSquad.agent_ids || '[]');
+            const updated = oldList.filter((aid: string) => !body.agentIds.includes(aid));
+            db.prepare('UPDATE squads SET agent_ids = ? WHERE id = ?').run(JSON.stringify(updated), oldSquadId);
+          }
+        }
+      }
+
       // Update agents' squad_id: clear old, set new
       db.prepare('UPDATE agents SET squad_id = NULL, updated_at = datetime(\'now\') WHERE squad_id = ?').run(id);
       if (body.agentIds.length > 0) {
@@ -147,8 +164,8 @@ export async function DELETE(
     // Clear squad_id from agents
     db.prepare('UPDATE agents SET squad_id = NULL, updated_at = datetime(\'now\') WHERE squad_id = ?').run(id);
 
-    // Mark as disbanded rather than deleting
-    db.prepare("UPDATE squads SET status = 'disbanded' WHERE id = ?").run(id);
+    // Mark as disbanded and clear agent_ids list
+    db.prepare("UPDATE squads SET status = 'disbanded', agent_ids = '[]', lead_agent_id = NULL WHERE id = ?").run(id);
 
     return NextResponse.json({ success: true });
   } catch (error) {

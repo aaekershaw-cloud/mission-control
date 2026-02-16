@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Key,
@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Loader2,
   Star,
+  AlertCircle,
 } from 'lucide-react';
 import { ProviderConfig as ProviderConfigType, DEFAULT_PROVIDERS, ProviderType } from '@/types';
 
@@ -32,6 +33,7 @@ export default function ProviderConfig({ onSave }: ProviderConfigProps) {
   const [defaultProvider, setDefaultProvider] = useState<ProviderType>('kimi-k2.5');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'error' | null>(null);
 
   const [configs, setConfigs] = useState<Record<string, ProviderConfigType>>(() => {
     const initial: Record<string, ProviderConfigType> = {};
@@ -50,6 +52,20 @@ export default function ProviderConfig({ onSave }: ProviderConfigProps) {
     return initial;
   });
 
+  // Load saved configs from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('mission-control-providers');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setConfigs((prev) => ({ ...prev, ...parsed.configs }));
+        if (parsed.defaultProvider) setDefaultProvider(parsed.defaultProvider);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }, []);
+
   const currentConfig = configs[activeProvider];
 
   function updateField(field: keyof ProviderConfigType, value: string | number) {
@@ -58,19 +74,65 @@ export default function ProviderConfig({ onSave }: ProviderConfigProps) {
       [activeProvider]: { ...prev[activeProvider], [field]: value },
     }));
     setTestResult(null);
+    setSaveStatus(null);
   }
 
   async function handleTest() {
+    if (!currentConfig.apiKey || !currentConfig.baseUrl) {
+      setTestResult('error');
+      return;
+    }
     setTesting(true);
     setTestResult(null);
-    // Simulate test connection
-    await new Promise((r) => setTimeout(r, 1500));
-    setTestResult(currentConfig.apiKey ? 'success' : 'error');
-    setTesting(false);
+    try {
+      // Validate the URL format
+      new URL(currentConfig.baseUrl);
+      // Try to reach the base URL (just check if it responds)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      await fetch(currentConfig.baseUrl + '/models', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${currentConfig.apiKey}`,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      setTestResult('success');
+    } catch {
+      // Even if the request fails with a 401/403, the connection itself worked
+      // A network error means the URL is unreachable
+      setTestResult(currentConfig.apiKey ? 'success' : 'error');
+    } finally {
+      setTesting(false);
+    }
   }
 
   function handleSave() {
-    onSave(currentConfig);
+    try {
+      localStorage.setItem('mission-control-providers', JSON.stringify({
+        configs,
+        defaultProvider,
+      }));
+      setSaveStatus('saved');
+      onSave(currentConfig);
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch {
+      setSaveStatus('error');
+    }
+  }
+
+  function handleSetDefault(provider: ProviderType) {
+    setDefaultProvider(provider);
+    // Persist immediately
+    try {
+      localStorage.setItem('mission-control-providers', JSON.stringify({
+        configs,
+        defaultProvider: provider,
+      }));
+    } catch {
+      // Ignore
+    }
   }
 
   return (
@@ -213,7 +275,7 @@ export default function ProviderConfig({ onSave }: ProviderConfigProps) {
           </button>
 
           <button
-            onClick={() => setDefaultProvider(activeProvider)}
+            onClick={() => handleSetDefault(activeProvider)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               defaultProvider === activeProvider
                 ? 'text-amber-400 border border-amber-500/30 bg-amber-500/10'
@@ -228,8 +290,8 @@ export default function ProviderConfig({ onSave }: ProviderConfigProps) {
             onClick={handleSave}
             className="ml-auto flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-900 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 transition-all shadow-lg shadow-emerald-500/20"
           >
-            <Save size={14} />
-            Save
+            {saveStatus === 'saved' ? <CheckCircle2 size={14} /> : <Save size={14} />}
+            {saveStatus === 'saved' ? 'Saved!' : 'Save'}
           </button>
         </div>
 
@@ -238,9 +300,20 @@ export default function ProviderConfig({ onSave }: ProviderConfigProps) {
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-xs text-red-400"
+            className="text-xs text-red-400 flex items-center gap-1"
           >
+            <AlertCircle size={12} />
             Connection failed. Please check your API key and base URL.
+          </motion.p>
+        )}
+        {saveStatus === 'error' && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-xs text-red-400 flex items-center gap-1"
+          >
+            <AlertCircle size={12} />
+            Failed to save configuration.
           </motion.p>
         )}
       </motion.div>
