@@ -15,6 +15,7 @@ interface TaskColumnProps {
   title: string;
   onAddTask?: (status: TaskStatus) => void;
   onTaskClick?: (task: Task) => void;
+  onTaskRun?: (task: Task) => void;
 }
 
 const headerAccent: Record<TaskStatus, string> = {
@@ -25,7 +26,7 @@ const headerAccent: Record<TaskStatus, string> = {
   done: 'border-t-emerald-500',
 };
 
-export default function TaskColumn({ status, tasks, title, onAddTask, onTaskClick }: TaskColumnProps) {
+export default function TaskColumn({ status, tasks, title, onAddTask, onTaskClick, onTaskRun }: TaskColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const config = TASK_STATUS_CONFIG[status];
 
@@ -57,7 +58,7 @@ export default function TaskColumn({ status, tasks, title, onAddTask, onTaskClic
           strategy={verticalListSortingStrategy}
         >
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} onClick={onTaskClick} />
+            <TaskCard key={task.id} task={task} onClick={onTaskClick} onRun={onTaskRun} />
           ))}
         </SortableContext>
 

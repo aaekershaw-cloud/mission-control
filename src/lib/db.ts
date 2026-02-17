@@ -89,6 +89,21 @@ function initializeDatabase(db: Database.Database) {
       FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS task_results (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      response TEXT NOT NULL,
+      tokens_used INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      duration_ms INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'completed',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS provider_configs (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,

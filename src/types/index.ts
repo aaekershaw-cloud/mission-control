@@ -136,6 +136,21 @@ export const DEFAULT_PROVIDERS: Record<string, Omit<ProviderConfig, 'apiKey'>> =
   },
 };
 
+export interface TaskResult {
+  id: string;
+  taskId: string;
+  agentId: string;
+  agentName?: string;
+  agentAvatar?: string;
+  prompt: string;
+  response: string;
+  tokensUsed: number;
+  costUsd: number;
+  durationMs: number;
+  status: 'running' | 'completed' | 'error';
+  createdAt: string;
+}
+
 export const TASK_STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bgColor: string }> = {
   backlog: { label: 'Backlog', color: 'text-slate-400', bgColor: 'bg-slate-500/20' },
   todo: { label: 'To Do', color: 'text-blue-400', bgColor: 'bg-blue-500/20' },

@@ -3,7 +3,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion } from 'framer-motion';
-import { GripVertical, Clock } from 'lucide-react';
+import { GripVertical, Clock, Play } from 'lucide-react';
 import { Task, PRIORITY_CONFIG } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -11,6 +11,7 @@ interface TaskCardProps {
   task: Task;
   overlay?: boolean;
   onClick?: (task: Task) => void;
+  onRun?: (task: Task) => void;
 }
 
 const priorityDotColors: Record<string, string> = {
@@ -20,7 +21,7 @@ const priorityDotColors: Record<string, string> = {
   low: 'bg-blue-400',
 };
 
-export default function TaskCard({ task, overlay = false, onClick }: TaskCardProps) {
+export default function TaskCard({ task, overlay = false, onClick, onRun }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -109,10 +110,21 @@ export default function TaskCard({ task, overlay = false, onClick }: TaskCardPro
               <span className="text-xs text-slate-600 italic">Unassigned</span>
             )}
 
-            {/* Time */}
-            <div className="flex items-center gap-1 text-slate-600">
-              <Clock size={10} />
-              <span className="text-[10px]">{timeAgo}</span>
+            {/* Time + Run */}
+            <div className="flex items-center gap-2">
+              {task.assigneeId && task.status !== 'done' && onRun && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRun(task); }}
+                  className="text-emerald-500/60 hover:text-emerald-400 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Run agent"
+                >
+                  <Play size={12} />
+                </button>
+              )}
+              <div className="flex items-center gap-1 text-slate-600">
+                <Clock size={10} />
+                <span className="text-[10px]">{timeAgo}</span>
+              </div>
             </div>
           </div>
         </div>

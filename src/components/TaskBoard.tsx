@@ -18,6 +18,7 @@ import { Task, TaskStatus, Agent, TASK_STATUS_CONFIG } from '@/types';
 import TaskColumn from './TaskColumn';
 import TaskCard from './TaskCard';
 import TaskDetailModal from './TaskDetailModal';
+import TaskExecutor from './TaskExecutor';
 
 const columns: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
 
@@ -30,6 +31,7 @@ export default function TaskBoard() {
   // Modal state
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [createWithStatus, setCreateWithStatus] = useState<TaskStatus | undefined>(undefined);
+  const [executingTask, setExecutingTask] = useState<Task | null>(null);
   const modalOpen = selectedTask !== null || createWithStatus !== undefined;
 
   const sensors = useSensors(
@@ -66,6 +68,10 @@ export default function TaskBoard() {
     fetchTasks();
     fetchAgents();
   }, [fetchTasks, fetchAgents]);
+
+  const handleTaskRun = (task: Task) => {
+    setExecutingTask(task);
+  };
 
   const handleAddTask = (status: TaskStatus) => {
     setCreateWithStatus(status);
@@ -247,6 +253,7 @@ export default function TaskBoard() {
               tasks={tasks.filter((t) => t.status === status)}
               onAddTask={handleAddTask}
               onTaskClick={handleTaskClick}
+              onTaskRun={handleTaskRun}
             />
           ))}
 
@@ -255,6 +262,15 @@ export default function TaskBoard() {
           </DragOverlay>
         </DndContext>
       </motion.div>
+
+      {executingTask && (
+        <TaskExecutor
+          task={executingTask}
+          agents={agents}
+          onClose={() => setExecutingTask(null)}
+          onComplete={() => fetchTasks()}
+        />
+      )}
 
       {modalOpen && (
         <TaskDetailModal
