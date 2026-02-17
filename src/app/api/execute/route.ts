@@ -4,10 +4,33 @@ import { v4 as uuid } from 'uuid';
 
 export async function POST(req: NextRequest) {
   try {
-    const { taskId, providerConfig } = await req.json();
+    const body = await req.json();
+    const { taskId } = body;
+    let providerConfig = body.providerConfig;
 
-    if (!taskId || !providerConfig) {
-      return NextResponse.json({ error: 'Missing taskId or providerConfig' }, { status: 400 });
+    if (!taskId) {
+      return NextResponse.json({ error: 'Missing taskId' }, { status: 400 });
+    }
+
+    // If no providerConfig from client, load from server DB
+    if (!providerConfig) {
+      const db2 = getDb();
+      const serverProvider = db2.prepare('SELECT * FROM provider_configs WHERE is_default = 1').get() as Record<string, unknown> | undefined
+        || db2.prepare('SELECT * FROM provider_configs WHERE api_key != "" LIMIT 1').get() as Record<string, unknown> | undefined;
+      
+      if (serverProvider && serverProvider.api_key) {
+        providerConfig = {
+          type: serverProvider.type,
+          baseUrl: serverProvider.base_url,
+          apiKey: serverProvider.api_key,
+          model: serverProvider.model,
+          maxTokens: serverProvider.max_tokens || 8192,
+        };
+      }
+    }
+
+    if (!providerConfig) {
+      return NextResponse.json({ error: 'No provider configured. Add one via /api/providers or pass providerConfig.' }, { status: 400 });
     }
 
     const db = getDb();
