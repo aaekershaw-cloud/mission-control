@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { resetDb } from '@/lib/db';
+
+export async function GET(req: NextRequest) {
+  const secret = req.nextUrl.searchParams.get('secret');
+  if (secret !== process.env.UPLOAD_SECRET) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  const dbPath = process.env.DB_PATH || './mission-control.db';
+  const data = readFileSync(dbPath);
+  return new NextResponse(data, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': 'attachment; filename="mission-control.db"',
+    },
+  });
+}
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-upload-secret');
