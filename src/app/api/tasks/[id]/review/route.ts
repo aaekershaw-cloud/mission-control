@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { unlockDependentTasks } from '@/lib/executor';
 import { v4 as uuid } from 'uuid';
+import { logActivity } from '@/lib/activityLog';
 
 const SYSTEM_AGENT_ID = 'system';
 
@@ -96,6 +97,13 @@ export async function POST(
     unlockDependentTasks(taskId);
     triggerQueueIfNeeded();
 
+    // Log review activity
+    await logActivity('review', `Task approve: ${task.title}`, feedback || '', null, { 
+      taskId: task.id, 
+      action: 'approve', 
+      taggedAgents: [] 
+    });
+
     // Post approval comms message
     let approveContent = `✅ Task approved: **${task.title}**. Great work!`;
     // Check for dependent tasks that got unlocked
@@ -178,6 +186,13 @@ export async function POST(
 
     triggerQueueIfNeeded();
 
+    // Log review activity
+    await logActivity('review', `Task reject: ${task.title}`, feedback || '', null, { 
+      taskId: task.id, 
+      action: 'reject', 
+      taggedAgents: [] 
+    });
+
     // Post rejection comms message
     const assigneeName = task.agent_name || 'Agent';
     await postCommsMessage(SYSTEM_AGENT_ID, `❌ Task rejected: **${task.title}**. Feedback: ${feedback}. @${assigneeName} — please review the feedback and re-do this task.`, 'alert', task.assignee_id || null);
@@ -215,6 +230,13 @@ export async function POST(
     ]);
 
     triggerQueueIfNeeded();
+
+    // Log review activity
+    await logActivity('review', `Task revise: ${task.title}`, feedback || '', null, { 
+      taskId: task.id, 
+      action: 'revise', 
+      taggedAgents: [] 
+    });
 
     // Post revision comms message
     const reviseAgentName = task.agent_name || 'Agent';

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuid } from 'uuid';
+import { logActivity } from '@/lib/activityLog';
 
 export async function GET(request: NextRequest) {
   try {
@@ -118,6 +119,12 @@ export async function PUT(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'Content ID required' }, { status: 400 });
     }
+
+    // Get current item to track stage changes
+    const currentItem = await db.get('SELECT * FROM content_pipeline WHERE id = $1', [id]) as Record<string, any> | undefined;
+    if (!currentItem) {
+      return NextResponse.json({ error: 'Content not found' }, { status: 404 });
+    }
     
     const updateFields = [];
     const values = [];
@@ -148,6 +155,43 @@ export async function PUT(request: NextRequest) {
     `;
     
     await db.run(query, values);
+
+    // Log stage change if it occurred
+    const oldStage = currentItem.stage;
+    const newStage = updates.stage;
+    if (newStage && newStage !== oldStage) {
+      await logActivity('content', `Content moved to ${newStage}: ${currentItem.title}`, '', currentItem.assigned_agent_id, { 
+        itemId: id, 
+        fromStage: oldStage, 
+        toStage: newStage 
+      });
+
+      // Auto-trigger social posting if stage changed to 'published' and platform is social
+      if (newStage === 'published' && ['twitter', 'instagram', 'tiktok'].includes(currentItem.platform)) {
+        try {
+          const response = await fetch('http://localhost:3003/api/social', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: currentItem.body.substring(0, 2000),
+              platforms: [currentItem.platform === 'twitter' ? 'x' : currentItem.platform],
+              contentId: id,
+              postNow: false, // Queue in Buffer
+            }),
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            await logActivity('social', `Posted to ${currentItem.platform}: ${currentItem.title}`, currentItem.body.substring(0, 200), null, { 
+              platform: currentItem.platform, 
+              itemId: id 
+            });
+          }
+        } catch (error) {
+          console.error('Auto-social posting failed:', error);
+        }
+      }
+    }
     
     return NextResponse.json({ success: true });
   } catch (error) {

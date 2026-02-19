@@ -114,6 +114,12 @@ export async function POST(request: NextRequest) {
       WHERE t.id = $1
     `, [id]) as Record<string, unknown>;
 
+    // Create calendar event for the task
+    await db.run(
+      'INSERT INTO calendar_events (id, title, description, event_type, start_time, metadata) VALUES ($1, $2, $3, $4, NOW(), $5)',
+      [uuid(), `Task: ${title}`, description.substring(0, 200), 'task', JSON.stringify({ taskId: id })]
+    );
+
     // Auto-start queue if task created as todo
     if (status === 'todo') {
       await triggerQueueIfNeeded();

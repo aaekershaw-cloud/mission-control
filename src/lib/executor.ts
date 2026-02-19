@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { notifyReviewReady } from '@/lib/notify';
 import { getToolsForAgent, executeTool } from '@/lib/agentTools';
 import { processAutoReview } from '@/lib/autoApprove';
+import { logActivity } from '@/lib/activityLog';
 
 export interface ExecutionResult {
   id: string;
@@ -92,6 +93,12 @@ export async function executeTask(
   // Update statuses to in_progress
   await db.run("UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1", [taskId]);
   await db.run("UPDATE agents SET status = 'busy', current_task_id = $1, updated_at = NOW() WHERE id = $2", [taskId, agentId]);
+
+  // Log task start activity
+  await logActivity('agent_task', `Task started: ${task.title}`, `Agent ${task.agent_name} began working`, agentId, { 
+    taskId, 
+    status: 'started' 
+  });
 
   // Build system prompt from agent soul/personality/role
   const outputFormatGuide = `
@@ -391,6 +398,12 @@ Structure each caption as a separate section divided by ---. Include hashtags at
       VALUES ($1, $2, $3, $4, $5, 0, 0, $6, 'error')
     `, [resultId, taskId, agentId, userPrompt, errMsg, durationMs]);
 
+    // Log task failure activity
+    await logActivity('agent_task', `Task failed: ${task.title}`, errMsg, agentId, { 
+      taskId, 
+      status: 'failed' 
+    });
+
     return {
       id: resultId,
       taskId,
@@ -433,6 +446,30 @@ Structure each caption as a separate section divided by ---. Include hashtags at
       tasks_completed = tasks_completed + 1, updated_at = NOW()
     WHERE id = $3
   `, [tokensUsed, costUsd, agentId]);
+
+  // Log task completion activity
+  await logActivity('agent_task', `Task completed: ${task.title}`, `Agent ${task.agent_name} finished in ${durationMs}ms`, agentId, { 
+    taskId, 
+    status: 'completed', 
+    tokens: tokensUsed, 
+    cost: costUsd 
+  });
+
+  // Auto-create content pipeline item if task has content-related tags
+  const contentTags = ['lick', 'course', 'lesson', 'blog', 'social', 'instagram', 'twitter', 'tiktok'];
+  const taskTags = JSON.parse(task.tags || '[]');
+  const isContent = taskTags.some(t => contentTags.some(ct => t.toLowerCase().includes(ct)));
+  if (isContent) {
+    const platform = taskTags.find(t => ['instagram','twitter','tiktok','youtube'].some(p => t.toLowerCase().includes(p))) || 'blog';
+    await db.run(
+      'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())',
+      [uuid(), task.title, finalResponse.substring(0, 5000), 'review', platform, task.assignee_id, JSON.stringify({ taskId: task.id, autoCreated: true })]
+    );
+    await logActivity('content', `Content created: ${task.title}`, `Auto-added to pipeline as "${platform}" content`, task.assignee_id, { 
+      taskId: task.id, 
+      stage: 'review' 
+    });
+  }
 
   // Log system message
   const msgId = uuid();

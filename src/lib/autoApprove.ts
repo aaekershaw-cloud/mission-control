@@ -3,6 +3,7 @@ import { autoReviewTask, AutoReviewResult } from '@/lib/autoReview';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { unlockDependentTasks } from '@/lib/executor';
 import { v4 as uuid } from 'uuid';
+import { logActivity } from '@/lib/activityLog';
 
 const SYSTEM_AGENT_ID = 'system';
 
@@ -55,6 +56,13 @@ export async function processAutoReview(taskId: string): Promise<void> {
         UPDATE tasks SET status = 'done', completed_at = NOW(), updated_at = NOW()
         WHERE id = $1
       `, [taskId]);
+
+      // Log auto-review decision
+      await logActivity('review', `Auto-approve: ${task.title}`, reviewResult.reasons.join(', '), null, { 
+        taskId: task.id, 
+        decision: 'approve', 
+        autoReview: true 
+      });
 
       // Post success message
       const passedChecks = reviewResult.checks.filter(c => c.passed).map(c => c.name);
@@ -124,6 +132,13 @@ export async function processAutoReview(taskId: string): Promise<void> {
       const currentRetryCount = parseInt(task.retry_count || '0');
       const newRetryCount = currentRetryCount + 1;
 
+      // Log auto-review decision
+      await logActivity('review', `Auto-reject: ${task.title}`, reviewResult.reasons.join(', '), null, { 
+        taskId: task.id, 
+        decision: 'reject', 
+        autoReview: true 
+      });
+
       if (newRetryCount >= 3) {
         // Too many retries, flag for human review
         await db.run(`
@@ -158,6 +173,13 @@ export async function processAutoReview(taskId: string): Promise<void> {
       break;
 
     case 'flag':
+      // Log auto-review decision
+      await logActivity('review', `Auto-flag: ${task.title}`, reviewResult.reasons.join(', '), null, { 
+        taskId: task.id, 
+        decision: 'flag', 
+        autoReview: true 
+      });
+
       // Keep status as review, post flag message
       await postCommsMessage(
         SYSTEM_AGENT_ID,
