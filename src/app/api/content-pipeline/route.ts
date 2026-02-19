@@ -168,24 +168,25 @@ export async function PUT(request: NextRequest) {
 
       // Auto-trigger social posting if stage changed to 'published' and platform is social
       if (newStage === 'published' && ['twitter', 'instagram', 'tiktok'].includes(currentItem.platform)) {
+        const platformMap: Record<string, string> = { twitter: 'x', instagram: 'instagram', tiktok: 'tiktok' };
         try {
-          const response = await fetch('http://localhost:3003/api/social', {
+          const response = await fetch(`http://localhost:${process.env.PORT || 3003}/api/social`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               text: currentItem.body.substring(0, 2000),
-              platforms: [currentItem.platform === 'twitter' ? 'x' : currentItem.platform],
-              contentId: id,
-              postNow: false, // Queue in Buffer
+              platforms: [platformMap[currentItem.platform] || currentItem.platform],
+              postNow: true,
             }),
           });
           
           if (response.ok) {
-            const result = await response.json();
-            await logActivity('social', `Posted to ${currentItem.platform}: ${currentItem.title}`, currentItem.body.substring(0, 200), null, { 
+            await logActivity('social', `Auto-posted to ${currentItem.platform}: ${currentItem.title}`, currentItem.body.substring(0, 200), null, { 
               platform: currentItem.platform, 
               itemId: id 
             });
+          } else {
+            console.error('Auto-social posting failed:', await response.text());
           }
         } catch (error) {
           console.error('Auto-social posting failed:', error);

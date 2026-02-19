@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { logActivity } from '@/lib/activityLog';
+import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
@@ -26,6 +28,11 @@ function tryParseJson(response: string): unknown {
 function categorizeContent(task: Record<string, unknown>, parsed: unknown): string {
   const title = ((task.title as string) || '').toLowerCase();
   const tags = (() => { try { return JSON.parse((task.tags as string) || '[]'); } catch { return []; } })() as string[];
+
+  // Social content goes to content pipeline, not staging
+  if (tags.includes('social') || tags.includes('instagram') || tags.includes('twitter') || tags.includes('tiktok') ||
+      title.includes('instagram') || title.includes('caption') || title.includes('tweet') ||
+      title.includes('tiktok') || title.includes('social post')) return 'social';
 
   if (tags.includes('licks') || tags.includes('tabs') || title.includes('lick')) return 'licks';
   if (tags.includes('course') || tags.includes('curriculum') || title.includes('course')) return 'courses';
@@ -99,6 +106,24 @@ export async function POST(req: NextRequest) {
     const category = categorizeContent(task, parsed);
 
     if (category === 'other') { skipped.push(task.id as string); continue; }
+
+    // Social content → MC content pipeline (not staging)
+    if (category === 'social') {
+      const titleLower = ((task.title as string) || '').toLowerCase();
+      let platform = 'twitter';
+      if (titleLower.includes('instagram') || titleLower.includes('caption')) platform = 'instagram';
+      if (titleLower.includes('tiktok')) platform = 'tiktok';
+      if (titleLower.includes('youtube')) platform = 'youtube';
+
+      const itemId = uuid();
+      await db.run(
+        'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())',
+        [itemId, task.title as string, response.substring(0, 10000), 'review', platform, task.assignee_id as string || null, JSON.stringify({ taskId: task.id, autoCreated: true })]
+      );
+      await logActivity('content', `Social content to pipeline: ${task.title}`, `Added as ${platform} content for review`, task.assignee_id as string || null, { taskId: task.id, platform, pipelineItemId: itemId });
+      exported.push({ taskId: task.id as string, category: 'social-pipeline', file: itemId });
+      continue;
+    }
 
     const dir = path.join(CONTENT_DIR, category);
     ensureDir(dir);
