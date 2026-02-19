@@ -612,9 +612,16 @@ function ContentDetailModal({
     onClose();
   };
 
+  const [showReviseNotes, setShowReviseNotes] = useState(false);
+  const [reviseNotes, setReviseNotes] = useState('');
+
   const handleSendBack = async () => {
+    if (!showReviseNotes) {
+      setShowReviseNotes(true);
+      return;
+    }
     setActionInProgress('revise');
-    await updateContent({ stage: 'writing' });
+    await updateContent({ stage: 'writing', notes: reviseNotes || 'Needs revision' });
     setActionInProgress('');
     onClose();
   };
@@ -681,6 +688,36 @@ function ContentDetailModal({
           {content.agent_name && <span>By: <span className="text-slate-300">{content.agent_avatar} {content.agent_name}</span></span>}
           <span>{format(new Date(content.created_at), 'MMM d, yyyy')}</span>
         </div>
+
+        {/* Revision notes */}
+        {showReviseNotes && (
+          <div className="mb-4 p-4 bg-yellow-600/10 border border-yellow-600/30 rounded-lg">
+            <label className="text-sm font-medium text-yellow-400 mb-2 block">Revision Notes</label>
+            <textarea
+              value={reviseNotes}
+              onChange={e => setReviseNotes(e.target.value)}
+              rows={3}
+              className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm resize-y focus:outline-none focus:border-yellow-500/50"
+              placeholder="What needs to change?"
+              autoFocus
+            />
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={handleSendBack}
+                disabled={!!actionInProgress}
+                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                {actionInProgress === 'revise' ? 'Sending...' : 'Send Back for Revision'}
+              </button>
+              <button
+                onClick={() => { setShowReviseNotes(false); setReviseNotes(''); }}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-400 rounded-lg text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Action buttons */}
         <div className="flex items-center gap-3 pt-4 border-t border-white/10">
