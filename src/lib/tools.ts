@@ -398,18 +398,19 @@ export const TOOLS: Tool[] = [
           values.push(status);
         }
         
+        let paramIndex = 1;
         if (agentId) {
-          conditions.push('t.assignee_id = ?');
+          conditions.push(`t.assignee_id = $${paramIndex++}`);
           values.push(agentId);
         }
         
         if (search) {
-          conditions.push('(t.title LIKE ? OR t.description LIKE ?)');
+          conditions.push(`(t.title LIKE $${paramIndex++} OR t.description LIKE $${paramIndex++})`);
           values.push(`%${search}%`, `%${search}%`);
         }
         
         if (tags && tags.length > 0) {
-          const tagConditions = tags.map(() => 't.tags LIKE ?').join(' AND ');
+          const tagConditions = tags.map(() => `t.tags::text LIKE $${paramIndex++}`).join(' AND ');
           conditions.push(`(${tagConditions})`);
           tags.forEach(tag => values.push(`%${tag}%`));
         }
@@ -418,17 +419,17 @@ export const TOOLS: Tool[] = [
           query += ' AND ' + conditions.join(' AND ');
         }
         
-        query += ' ORDER BY t.updated_at DESC LIMIT ?';
+        query += ` ORDER BY t.updated_at DESC LIMIT $${paramIndex++}`;
         values.push(limit);
         
-        const results = db.prepare(query).all(...values) as any[];
+        const results = await db.all(query, values) as any[];
         
         return {
           results: results.map(r => ({
             id: r.id,
             title: r.title,
             status: r.status,
-            tags: r.tags ? r.tags.split(',').map((t: string) => t.trim()) : [],
+            tags: r.tags || [], // JSONB - already parsed
             assignee: r.assigneeName || 'Unassigned',
             resultPreview: r.resultPreview || 'No result yet'
           }))
@@ -475,12 +476,12 @@ export const TOOLS: Tool[] = [
         }
         
         sql += `
-          WHERE (t.title LIKE ? OR t.description LIKE ?)
+          WHERE (t.title LIKE $1 OR t.description LIKE $2)
           ORDER BY t.updated_at DESC
           LIMIT 10
         `;
         
-        const results = db.prepare(sql).all(`%${query}%`, `%${query}%`) as any[];
+        const results = await db.all(sql, [`%${query}%`, `%${query}%`]) as any[];
         
         return {
           results: results.map(r => ({

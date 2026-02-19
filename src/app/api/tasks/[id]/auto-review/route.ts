@@ -12,12 +12,12 @@ export async function GET(
 
   try {
     // Get the latest auto-review result for this task
-    const autoReview = db.prepare(`
+    const autoReview = await db.get(`
       SELECT * FROM auto_reviews 
-      WHERE task_id = ? 
+      WHERE task_id = $1
       ORDER BY created_at DESC 
       LIMIT 1
-    `).get(taskId) as Record<string, unknown> | undefined;
+    `, [taskId]) as Record<string, unknown> | undefined;
 
     if (!autoReview) {
       return NextResponse.json({ error: 'No auto-review found for this task' }, { status: 404 });
@@ -45,12 +45,12 @@ export async function POST(
   try {
     // Check if task exists and has a completed result
     const db = getDb();
-    const task = db.prepare(`
+    const task = await db.get(`
       SELECT t.*, tr.status as result_status
       FROM tasks t
       LEFT JOIN task_results tr ON t.id = tr.task_id AND tr.status = 'completed'
-      WHERE t.id = ?
-    `).get(taskId) as Record<string, unknown> | undefined;
+      WHERE t.id = $1
+    `, [taskId]) as Record<string, unknown> | undefined;
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });

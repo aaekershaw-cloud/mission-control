@@ -14,18 +14,20 @@ export async function POST(
       return NextResponse.json({ error: 'prompt is required' }, { status: 400 });
     }
 
-    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, string> | undefined;
+    const agent = await db.get('SELECT * FROM agents WHERE id = $1', [id]) as Record<string, string> | undefined;
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
     // Get provider
-    const provider = (db.prepare(
-      `SELECT * FROM provider_configs WHERE type = ? AND api_key != '' LIMIT 1`
-    ).get(agent.provider) as Record<string, string | number> | undefined)
-      ?? (db.prepare(
-        `SELECT * FROM provider_configs WHERE is_default = 1 AND api_key != '' LIMIT 1`
-      ).get() as Record<string, string | number> | undefined);
+    const provider = (await db.get(
+      `SELECT * FROM provider_configs WHERE type = $1 AND api_key != '' LIMIT 1`,
+      [agent.provider]
+    ) as Record<string, string | number> | undefined)
+      ?? (await db.get(
+        `SELECT * FROM provider_configs WHERE is_default = true AND api_key != '' LIMIT 1`,
+        []
+      ) as Record<string, string | number> | undefined);
 
     if (!provider) {
       return NextResponse.json({ error: 'No provider configured' }, { status: 500 });

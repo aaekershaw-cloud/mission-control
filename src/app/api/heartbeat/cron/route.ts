@@ -26,9 +26,10 @@ export async function POST() {
         if (msg.toAgentId === entry.agentId) {
           const ackId = uuid();
           const now = new Date().toISOString();
-          db.prepare(
-            `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-          ).run(ackId, entry.agentId, msg.fromAgentId, `📬 Acknowledged: "${msg.content.substring(0, 80)}${msg.content.length > 80 ? '...' : ''}"`, 'system', now);
+          await db.run(
+            `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [ackId, entry.agentId, msg.fromAgentId, `📬 Acknowledged: "${msg.content.substring(0, 80)}${msg.content.length > 80 ? '...' : ''}"`, 'system', now]
+          );
         }
       }
 

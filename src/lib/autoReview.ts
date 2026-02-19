@@ -16,22 +16,22 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
   const db = getDb();
   
   // Load task + latest task_result from DB
-  const task = db.prepare(`
+  const task = await db.get(`
     SELECT t.*, a.name as agent_name, a.codename as agent_codename
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
-    WHERE t.id = ?
-  `).get(taskId) as Record<string, string> | undefined;
+    WHERE t.id = $1
+  `, [taskId]) as Record<string, string> | undefined;
 
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
   }
 
-  const taskResult = db.prepare(`
+  const taskResult = await db.get(`
     SELECT response FROM task_results 
-    WHERE task_id = ? AND status = 'completed' 
+    WHERE task_id = $1 AND status = 'completed' 
     ORDER BY created_at DESC LIMIT 1
-  `).get(taskId) as { response: string } | undefined;
+  `, [taskId]) as { response: string } | undefined;
 
   if (!taskResult) {
     throw new Error(`No completed result found for task ${taskId}`);
@@ -41,14 +41,8 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
   const reasons: string[] = [];
   const checks: { name: string; passed: boolean; detail?: string; }[] = [];
   
-  // Parse task tags
-  const tags = (() => {
-    try {
-      return JSON.parse(task.tags || '[]') as string[];
-    } catch {
-      return [];
-    }
-  })();
+  // Parse task tags (JSONB - already parsed in PostgreSQL)
+  const tags = (task.tags as any) || [];
 
   // **INSTANT REJECT CHECKS**
   

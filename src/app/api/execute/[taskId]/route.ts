@@ -9,13 +9,13 @@ export async function GET(
     const { taskId } = await params;
     const db = getDb();
 
-    const results = db.prepare(`
+    const results = await db.all(`
       SELECT tr.*, a.name as agent_name, a.avatar as agent_avatar
       FROM task_results tr
       LEFT JOIN agents a ON tr.agent_id = a.id
-      WHERE tr.task_id = ?
+      WHERE tr.task_id = $1
       ORDER BY tr.created_at DESC
-    `).all(taskId);
+    `, [taskId]);
 
     const mapped = results.map((r: any) => ({
       id: r.id,

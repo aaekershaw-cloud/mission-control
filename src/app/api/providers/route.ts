@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 export async function GET() {
   try {
     const db = getDb();
-    const rows = db.prepare('SELECT * FROM provider_configs ORDER BY is_default DESC, created_at ASC').all() as Record<string, unknown>[];
+    const rows = await db.all('SELECT * FROM provider_configs ORDER BY is_default DESC, created_at ASC') as Record<string, unknown>[];
     
     const providers = rows.map((row) => ({
       id: row.id,
@@ -16,7 +16,7 @@ export async function GET() {
       model: row.model,
       contextWindow: row.context_window,
       maxTokens: row.max_tokens,
-      isDefault: row.is_default === 1,
+      isDefault: row.is_default === true,
       createdAt: row.created_at,
     }));
 
@@ -39,17 +39,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if provider of this type already exists — update it
-    const existing = db.prepare('SELECT id FROM provider_configs WHERE type = ?').get(type) as { id: string } | undefined;
+    const existing = await db.get('SELECT id FROM provider_configs WHERE type = $1', [type]) as { id: string } | undefined;
 
     if (existing) {
-      db.prepare(`
+      await db.run(`
         UPDATE provider_configs 
-        SET name = ?, base_url = ?, api_key = ?, model = ?, context_window = ?, max_tokens = ?, is_default = ?
-        WHERE id = ?
-      `).run(name, baseUrl, apiKey, model, contextWindow, maxTokens, isDefault ? 1 : 0, existing.id);
+        SET name = $1, base_url = $2, api_key = $3, model = $4, context_window = $5, max_tokens = $6, is_default = $7
+        WHERE id = $8
+      `, [name, baseUrl, apiKey, model, contextWindow, maxTokens, isDefault, existing.id]);
 
       if (isDefault) {
-        db.prepare('UPDATE provider_configs SET is_default = 0 WHERE id != ?').run(existing.id);
+        await db.run('UPDATE provider_configs SET is_default = false WHERE id != $1', [existing.id]);
       }
 
       return NextResponse.json({ success: true, id: existing.id, action: 'updated' });
@@ -58,13 +58,13 @@ export async function POST(request: NextRequest) {
     const id = uuid();
 
     if (isDefault) {
-      db.prepare('UPDATE provider_configs SET is_default = 0').run();
+      await db.run('UPDATE provider_configs SET is_default = false');
     }
 
-    db.prepare(`
+    await db.run(`
       INSERT INTO provider_configs (id, type, name, base_url, api_key, model, context_window, max_tokens, is_default)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, type, name, baseUrl, apiKey, model, contextWindow, maxTokens, isDefault ? 1 : 0);
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `, [id, type, name, baseUrl, apiKey, model, contextWindow, maxTokens, isDefault]);
 
     return NextResponse.json({ success: true, id, action: 'created' }, { status: 201 });
   } catch (error) {

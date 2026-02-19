@@ -47,17 +47,17 @@ export async function autoAssignTask(
   if (!codename) return null;
 
   const db = getDb();
-  const agent = db.prepare('SELECT id FROM agents WHERE codename = ? LIMIT 1').get(codename) as
+  const agent = await db.get('SELECT id FROM agents WHERE codename = $1 LIMIT 1', [codename]) as
     | { id: string }
     | undefined;
 
   if (!agent) return null;
 
   // Update the task with the new assignee
-  db.prepare("UPDATE tasks SET assignee_id = ?, updated_at = datetime('now') WHERE id = ?").run(
+  await db.run("UPDATE tasks SET assignee_id = $1, updated_at = NOW() WHERE id = $2", [
     agent.id,
     taskId
-  );
+  ]);
 
   return agent.id;
 }

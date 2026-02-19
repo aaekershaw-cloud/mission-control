@@ -10,16 +10,16 @@ export async function GET(
     const { id } = await params;
 
     // Get tasks assigned to this agent
-    const tasks = db.prepare(`
+    const tasks = await db.all(`
       SELECT t.*, tr.response, tr.tokens_used as result_tokens, tr.cost_usd as result_cost,
              tr.duration_ms, tr.status as result_status, tr.created_at as result_created_at
       FROM tasks t
       LEFT JOIN task_results tr ON t.id = tr.task_id AND tr.id = (
         SELECT tr2.id FROM task_results tr2 WHERE tr2.task_id = t.id ORDER BY tr2.created_at DESC LIMIT 1
       )
-      WHERE t.assignee_id = ?
+      WHERE t.assignee_id = $1
       ORDER BY t.updated_at DESC
-    `).all(id) as Record<string, unknown>[];
+    `, [id]) as Record<string, unknown>[];
 
     const result = tasks.map((t) => ({
       id: t.id,

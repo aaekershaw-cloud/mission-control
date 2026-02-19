@@ -22,12 +22,12 @@ export async function GET(request: NextRequest) {
     const results: SearchResult[] = [];
 
     // Search agents
-    const agents = db.prepare(`
+    const agents = await db.all(`
       SELECT id, name, codename, avatar, role
       FROM agents
-      WHERE name LIKE ? OR codename LIKE ? OR role LIKE ?
+      WHERE name LIKE $1 OR codename LIKE $2 OR role LIKE $3
       LIMIT 5
-    `).all(pattern, pattern, pattern) as Array<{
+    `, [pattern, pattern, pattern]) as Array<{
       id: string;
       name: string;
       codename: string;
@@ -45,12 +45,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Search tasks
-    const tasks = db.prepare(`
+    const tasks = await db.all(`
       SELECT id, title, description, status, priority
       FROM tasks
-      WHERE title LIKE ? OR description LIKE ?
+      WHERE title LIKE $1 OR description LIKE $2
       LIMIT 5
-    `).all(pattern, pattern) as Array<{
+    `, [pattern, pattern]) as Array<{
       id: string;
       title: string;
       description: string;
@@ -68,13 +68,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Search messages
-    const messages = db.prepare(`
+    const messages = await db.all(`
       SELECT m.id, m.content, a.name AS from_name, a.avatar AS from_avatar
       FROM messages m
       LEFT JOIN agents a ON m.from_agent_id = a.id
-      WHERE m.content LIKE ?
+      WHERE m.content LIKE $1
       LIMIT 5
-    `).all(pattern) as Array<{
+    `, [pattern]) as Array<{
       id: string;
       content: string;
       from_name: string | null;

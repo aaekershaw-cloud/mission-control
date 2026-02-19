@@ -14,13 +14,26 @@ import AgentFormModal from '@/components/AgentFormModal';
 import SquadDesigner from '@/components/SquadDesigner';
 import CommandPalette from '@/components/CommandPalette';
 import ProviderConfig from '@/components/ProviderConfig';
+import dynamic from 'next/dynamic';
 
-type TabId = 'dashboard' | 'agents' | 'tasks' | 'comms' | 'analytics' | 'squads' | 'config';
+// Dynamic imports for the new pages to avoid SSR issues
+const CalendarPage = dynamic(() => import('./calendar/page'), { ssr: false });
+const MemoryPage = dynamic(() => import('./memory/page'), { ssr: false });
+const ContentPage = dynamic(() => import('./content/page'), { ssr: false });
+const ActivityPage = dynamic(() => import('./activity/page'), { ssr: false });
+const StripeDashboardPage = dynamic(() => import('./stripe-dashboard/page'), { ssr: false });
+
+type TabId = 'dashboard' | 'agents' | 'tasks' | 'calendar' | 'memory' | 'content' | 'activity' | 'stripe-dashboard' | 'comms' | 'analytics' | 'squads' | 'config';
 
 const TAB_TITLES: Record<TabId, string> = {
   dashboard: 'Command Center',
   agents: 'Agent Fleet',
   tasks: 'Mission Board',
+  calendar: 'Calendar',
+  memory: 'Memory Browser',
+  content: 'Content Pipeline',
+  activity: 'Activity Feed',
+  'stripe-dashboard': 'Revenue Dashboard',
   comms: 'Comms Center',
   analytics: 'Analytics',
   squads: 'Squad Operations',
@@ -237,7 +250,7 @@ export default function MissionControl() {
     setCommandPaletteOpen(false);
     const cmd = command.replace('tab:', '').replace('create:', 'new-').replace('toggle:', 'toggle-');
     switch (cmd) {
-      case 'dashboard': case 'agents': case 'tasks': case 'comms': case 'analytics': case 'squads': case 'config':
+      case 'dashboard': case 'agents': case 'tasks': case 'calendar': case 'memory': case 'content': case 'activity': case 'stripe-dashboard': case 'comms': case 'analytics': case 'squads': case 'config':
         setActiveTab(cmd);
         break;
       case 'new-agent':
@@ -313,6 +326,16 @@ export default function MissionControl() {
         );
       case 'tasks':
         return <TaskBoard />;
+      case 'calendar':
+        return <CalendarPage />;
+      case 'memory':
+        return <MemoryPage />;
+      case 'content':
+        return <ContentPage />;
+      case 'activity':
+        return <ActivityPage />;
+      case 'stripe-dashboard':
+        return <StripeDashboardPage />;
       case 'comms':
         return (
           <div className="h-full">

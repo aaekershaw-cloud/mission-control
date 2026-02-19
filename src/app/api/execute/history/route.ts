@@ -5,13 +5,13 @@ export async function GET() {
   try {
     const db = getDb();
 
-    const results = db.prepare(`
+    const results = await db.all(`
       SELECT tr.*, a.name as agent_name, a.avatar as agent_avatar
       FROM task_results tr
       LEFT JOIN agents a ON tr.agent_id = a.id
       ORDER BY tr.created_at DESC
       LIMIT 50
-    `).all();
+    `, []);
 
     const mapped = results.map((r: any) => ({
       id: r.id,

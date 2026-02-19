@@ -7,9 +7,9 @@ import { autoAssignTask } from '@/lib/autoAssign';
 let queueRunning = false;
 let shouldStop = false;
 
-function getQueueState() {
+async function getQueueState() {
   const db = getDb();
-  return db.prepare('SELECT * FROM queue_state WHERE id = ?').get('singleton') as {
+  return await db.get('SELECT * FROM queue_state WHERE id = $1', ['singleton']) as {
     id: string;
     status: string;
     current_task_id: string | null;
@@ -17,10 +17,10 @@ function getQueueState() {
     tasks_remaining: number;
     started_at: string | null;
     updated_at: string;
-  } | undefined;
+  } | null;
 }
 
-function updateQueueState(fields: {
+async function updateQueueState(fields: {
   status?: string;
   current_task_id?: string | null;
   tasks_processed?: number;
@@ -28,17 +28,18 @@ function updateQueueState(fields: {
   started_at?: string | null;
 }) {
   const db = getDb();
-  const setClauses: string[] = ["updated_at = datetime('now')"];
+  const setClauses: string[] = ["updated_at = NOW()"];
   const values: unknown[] = [];
+  let paramIndex = 1;
 
-  if ('status' in fields) { setClauses.push('status = ?'); values.push(fields.status); }
-  if ('current_task_id' in fields) { setClauses.push('current_task_id = ?'); values.push(fields.current_task_id); }
-  if ('tasks_processed' in fields) { setClauses.push('tasks_processed = ?'); values.push(fields.tasks_processed); }
-  if ('tasks_remaining' in fields) { setClauses.push('tasks_remaining = ?'); values.push(fields.tasks_remaining); }
-  if ('started_at' in fields) { setClauses.push('started_at = ?'); values.push(fields.started_at); }
+  if ('status' in fields) { setClauses.push(`status = $${paramIndex}`); values.push(fields.status); paramIndex++; }
+  if ('current_task_id' in fields) { setClauses.push(`current_task_id = $${paramIndex}`); values.push(fields.current_task_id); paramIndex++; }
+  if ('tasks_processed' in fields) { setClauses.push(`tasks_processed = $${paramIndex}`); values.push(fields.tasks_processed); paramIndex++; }
+  if ('tasks_remaining' in fields) { setClauses.push(`tasks_remaining = $${paramIndex}`); values.push(fields.tasks_remaining); paramIndex++; }
+  if ('started_at' in fields) { setClauses.push(`started_at = $${paramIndex}`); values.push(fields.started_at); paramIndex++; }
 
   values.push('singleton');
-  db.prepare(`UPDATE queue_state SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+  await db.run(`UPDATE queue_state SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`, values);
 }
 
 async function processQueue() {
@@ -46,7 +47,7 @@ async function processQueue() {
 
   while (!shouldStop) {
     // Priority order: critical=0, high=1, medium=2, low=3
-    const tasks = db.prepare(`
+    const tasks = await db.all(`
       SELECT t.*, a.id as agent_id
       FROM tasks t
       LEFT JOIN agents a ON t.assignee_id = a.id
@@ -60,9 +61,9 @@ async function processQueue() {
           ELSE 4
         END,
         t.created_at ASC
-    `).all() as Array<{
+    `) as Array<{
       id: string; title: string; assignee_id: string | null;
-      tags: string; description: string; priority: string;
+      tags: string | any[]; description: string; priority: string;
     }>;
 
     // Filter: try to auto-assign unassigned ones first
@@ -73,7 +74,7 @@ async function processQueue() {
         eligible.push(task);
       } else {
         // Try auto-assign
-        const tags = JSON.parse(task.tags || '[]') as string[];
+        const tags = Array.isArray(task.tags) ? task.tags : JSON.parse(task.tags || '[]') as string[];
         const assigned = await autoAssignTask(task.id, tags, task.description || '');
         if (assigned) {
           eligible.push(task);
@@ -85,7 +86,7 @@ async function processQueue() {
 
     const next = eligible[0];
 
-    updateQueueState({
+    await updateQueueState({
       current_task_id: next.id,
       tasks_remaining: eligible.length - 1,
     });
@@ -97,8 +98,8 @@ async function processQueue() {
     }
 
     // Increment processed count
-    const state = getQueueState();
-    updateQueueState({
+    const state = await getQueueState();
+    await updateQueueState({
       current_task_id: null,
       tasks_processed: (state?.tasks_processed ?? 0) + 1,
     });
@@ -109,7 +110,7 @@ async function processQueue() {
   // Done
   queueRunning = false;
   shouldStop = false;
-  updateQueueState({
+  await updateQueueState({
     status: 'idle',
     current_task_id: null,
     tasks_remaining: 0,
@@ -120,7 +121,7 @@ async function processQueue() {
 // --- Route Handlers ---
 
 export async function GET() {
-  const state = getQueueState();
+  const state = await getQueueState();
   if (!state) {
     return NextResponse.json({ status: 'idle', tasksProcessed: 0, tasksRemaining: 0 });
   }
@@ -130,15 +131,15 @@ export async function GET() {
 
   // Get count of todo tasks with assignees
   const db = getDb();
-  const remaining = (db.prepare(
+  const remaining = await db.get(
     `SELECT COUNT(*) as c FROM tasks WHERE status = 'todo'`
-  ).get() as { c: number }).c;
+  ) as { c: number };
 
   return NextResponse.json({
     status: effectiveStatus,
     currentTaskId: state.current_task_id,
     tasksProcessed: state.tasks_processed,
-    tasksRemaining: remaining,
+    tasksRemaining: remaining.c,
     startedAt: state.started_at,
     updatedAt: state.updated_at,
   });
@@ -150,13 +151,13 @@ export async function POST(req: NextRequest) {
 
   if (action === 'stop') {
     shouldStop = true;
-    updateQueueState({ status: 'stopping' });
+    await updateQueueState({ status: 'stopping' });
     return NextResponse.json({ ok: true, message: 'Queue will stop after current task.' });
   }
 
   if (action === 'start') {
     if (queueRunning) {
-      const state = getQueueState();
+      const state = await getQueueState();
       return NextResponse.json({
         ok: false,
         message: 'Queue is already running.',
@@ -167,9 +168,9 @@ export async function POST(req: NextRequest) {
     const db = getDb();
 
     // Count eligible tasks
-    const todoTasks = db.prepare(
+    const todoTasks = await db.get(
       `SELECT COUNT(*) as c FROM tasks WHERE status = 'todo'`
-    ).get() as { c: number };
+    ) as { c: number };
 
     if (todoTasks.c === 0) {
       return NextResponse.json({
@@ -180,17 +181,17 @@ export async function POST(req: NextRequest) {
 
     queueRunning = true;
     shouldStop = false;
-    updateQueueState({
+    await updateQueueState({
       status: 'running',
       tasks_remaining: todoTasks.c,
       started_at: new Date().toISOString(),
     });
 
     // Start processing in background (non-blocking)
-    processQueue().catch((err) => {
+    processQueue().catch(async (err) => {
       console.error('Queue processor error:', err);
       queueRunning = false;
-      updateQueueState({ status: 'idle', current_task_id: null });
+      await updateQueueState({ status: 'idle', current_task_id: null });
     });
 
     return NextResponse.json({

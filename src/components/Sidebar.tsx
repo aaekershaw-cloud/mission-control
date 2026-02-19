@@ -13,6 +13,11 @@ import {
   ChevronRight,
   Hexagon,
   X,
+  Calendar,
+  Brain,
+  FileText,
+  DollarSign,
+  Activity,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,6 +33,11 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agents', label: 'Agents', icon: Users },
   { id: 'tasks', label: 'Tasks', icon: KanbanSquare },
+  { id: 'calendar', label: 'Calendar', icon: Calendar },
+  { id: 'memory', label: 'Memory', icon: Brain },
+  { id: 'content', label: 'Content', icon: FileText },
+  { id: 'activity', label: 'Activity', icon: Activity },
+  { id: 'stripe-dashboard', label: 'Revenue', icon: DollarSign },
   { id: 'comms', label: 'Comms', icon: MessageSquare },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'squads', label: 'Squads', icon: Shield },

@@ -9,15 +9,15 @@ export async function GET(
     const db = getDb();
     const { id } = await params;
 
-    const row = db.prepare(`
+    const row = await db.get(`
       SELECT a.*,
         t.id AS current_task_id_ref,
         t.title AS current_task_title,
         t.status AS current_task_status
       FROM agents a
       LEFT JOIN tasks t ON a.current_task_id = t.id
-      WHERE a.id = ?
-    `).get(id) as Record<string, unknown> | undefined;
+      WHERE a.id = $1
+    `, [id]) as Record<string, unknown> | null;
 
     if (!row) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
@@ -68,7 +68,7 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
-    const existing = db.prepare('SELECT id FROM agents WHERE id = ?').get(id);
+    const existing = await db.get('SELECT id FROM agents WHERE id = $1', [id]);
     if (!existing) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
@@ -92,11 +92,13 @@ export async function PUT(
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
+    let paramIndex = 1;
 
     for (const [camel, snake] of Object.entries(allowedFields)) {
       if (camel in body) {
-        setClauses.push(`${snake} = ?`);
+        setClauses.push(`${snake} = $${paramIndex}`);
         values.push(body[camel]);
+        paramIndex++;
       }
     }
 
@@ -107,14 +109,15 @@ export async function PUT(
       );
     }
 
-    setClauses.push("updated_at = datetime('now')");
+    setClauses.push('updated_at = NOW()');
     values.push(id);
 
-    db.prepare(
-      `UPDATE agents SET ${setClauses.join(', ')} WHERE id = ?`
-    ).run(...values);
+    await db.run(
+      `UPDATE agents SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+      values
+    );
 
-    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
+    const row = await db.get('SELECT * FROM agents WHERE id = $1', [id]) as Record<string, unknown>;
 
     return NextResponse.json({
       id: row.id,
@@ -153,12 +156,12 @@ export async function DELETE(
     const db = getDb();
     const { id } = await params;
 
-    const existing = db.prepare('SELECT id FROM agents WHERE id = ?').get(id);
+    const existing = await db.get('SELECT id FROM agents WHERE id = $1', [id]);
     if (!existing) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+    await db.run('DELETE FROM agents WHERE id = $1', [id]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

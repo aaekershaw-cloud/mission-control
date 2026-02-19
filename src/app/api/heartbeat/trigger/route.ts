@@ -11,9 +11,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'agentIndex (number) is required' }, { status: 400 });
     }
 
-    const agents = db.prepare(
-      "SELECT id, name FROM agents WHERE id != 'system' ORDER BY created_at ASC"
-    ).all() as Array<{ id: string; name: string }>;
+    const agents = await db.all(
+      "SELECT id, name FROM agents WHERE id != $1 ORDER BY created_at ASC",
+      ['system']
+    ) as Array<{ id: string; name: string }>;
 
     if (agentIndex < 0 || agentIndex >= agents.length) {
       return NextResponse.json({ error: `agentIndex out of range (0-${agents.length - 1})` }, { status: 400 });

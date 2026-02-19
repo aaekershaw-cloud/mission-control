@@ -7,11 +7,11 @@ export interface AgentSchedule {
   intervalMinutes: number;
 }
 
-export function getHeartbeatSchedule(): AgentSchedule[] {
+export async function getHeartbeatSchedule(): Promise<AgentSchedule[]> {
   const db = getDb();
-  const agents = db.prepare(
+  const agents = await db.all(
     "SELECT id, name FROM agents WHERE id != 'system' ORDER BY created_at ASC"
-  ).all() as Array<{ id: string; name: string }>;
+  ) as Array<{ id: string; name: string }>;
 
   return agents.map((agent, index) => ({
     agentId: agent.id,
@@ -21,10 +21,11 @@ export function getHeartbeatSchedule(): AgentSchedule[] {
   }));
 }
 
-export function getAgentStatus(agentId: string): 'active' | 'idle' {
+export async function getAgentStatus(agentId: string): Promise<'active' | 'idle'> {
   const db = getDb();
-  const active = db.prepare(
-    "SELECT COUNT(*) as c FROM tasks WHERE assignee_id = ? AND status = 'in_progress'"
-  ).get(agentId) as { c: number };
+  const active = await db.get(
+    "SELECT COUNT(*) as c FROM tasks WHERE assignee_id = $1 AND status = 'in_progress'",
+    [agentId]
+  ) as { c: number };
   return active.c > 0 ? 'active' : 'idle';
 }

@@ -6,25 +6,25 @@ import { v4 as uuid } from 'uuid';
 
 const SYSTEM_AGENT_ID = 'system';
 
-function postCommsMessage(fromAgentId: string, content: string, type: string, toAgentId: string | null = null) {
+async function postCommsMessage(fromAgentId: string, content: string, type: string, toAgentId: string | null = null) {
   const db = getDb();
   const id = uuid();
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, fromAgentId, toAgentId, content, type, now);
+  await db.run(
+    `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
+    [id, fromAgentId, toAgentId, content, type]
+  );
 }
 
 export async function processAutoReview(taskId: string): Promise<void> {
   const db = getDb();
   
   // Get the task info for messaging
-  const task = db.prepare(`
+  const task = await db.get(`
     SELECT t.*, a.name as agent_name, a.avatar as agent_avatar
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
-    WHERE t.id = ?
-  `).get(taskId) as Record<string, string> | undefined;
+    WHERE t.id = $1
+  `, [taskId]) as Record<string, string> | undefined;
 
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
@@ -35,37 +35,37 @@ export async function processAutoReview(taskId: string): Promise<void> {
 
   // Store the auto-review result in database
   const reviewId = uuid();
-  db.prepare(`
+  await db.run(`
     INSERT INTO auto_reviews (id, task_id, decision, reasons, checks, repaired_content, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+  `, [
     reviewId,
     taskId,
     reviewResult.decision,
     JSON.stringify(reviewResult.reasons),
     JSON.stringify(reviewResult.checks),
     reviewResult.repairedContent || null
-  );
+  ]);
 
   // Process the decision
   switch (reviewResult.decision) {
     case 'approve':
       // Update task status to done
-      db.prepare(`
-        UPDATE tasks SET status = 'done', completed_at = datetime('now'), updated_at = datetime('now')
-        WHERE id = ?
-      `).run(taskId);
+      await db.run(`
+        UPDATE tasks SET status = 'done', completed_at = NOW(), updated_at = NOW()
+        WHERE id = $1
+      `, [taskId]);
 
       // Post success message
       const passedChecks = reviewResult.checks.filter(c => c.passed).map(c => c.name);
-      postCommsMessage(
+      await postCommsMessage(
         SYSTEM_AGENT_ID,
         `🤖 Auto-approved: **${task.title}**. Checks passed: ${passedChecks.join(', ')}.`,
         'system'
       );
 
       // Unlock dependent tasks and trigger queue
-      unlockDependentTasks(taskId);
+      await unlockDependentTasks(taskId);
       triggerQueueIfNeeded();
 
       // Auto-export approved content to website content directory
@@ -80,16 +80,16 @@ export async function processAutoReview(taskId: string): Promise<void> {
       }
 
       // Auto-post to social media if this is a social content task
-      const taskTags = (() => { try { return JSON.parse(task.tags || '[]'); } catch { return []; } })() as string[];
+      const taskTags = (task.tags as any) || []; // JSONB - already parsed
       const taskTitle = (task.title || '').toLowerCase();
       const isSocial = taskTags.some((t: string) => ['social', 'instagram', 'twitter', 'x', 'tiktok', 'caption'].includes(t.toLowerCase()))
         || taskTitle.includes('instagram') || taskTitle.includes('caption') || taskTitle.includes('social') || taskTitle.includes('tweet');
 
       if (isSocial) {
         try {
-          const latestResult = db.prepare(`
-            SELECT response FROM task_results WHERE task_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1
-          `).get(taskId) as { response: string } | undefined;
+          const latestResult = await db.get(`
+            SELECT response FROM task_results WHERE task_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1
+          `, [taskId]) as { response: string } | undefined;
 
           if (latestResult) {
             const posts = latestResult.response
@@ -126,12 +126,12 @@ export async function processAutoReview(taskId: string): Promise<void> {
 
       if (newRetryCount >= 3) {
         // Too many retries, flag for human review
-        db.prepare(`
-          UPDATE tasks SET status = 'review', retry_count = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(newRetryCount, taskId);
+        await db.run(`
+          UPDATE tasks SET status = 'review', retry_count = $1, updated_at = NOW()
+          WHERE id = $2
+        `, [newRetryCount, taskId]);
 
-        postCommsMessage(
+        await postCommsMessage(
           SYSTEM_AGENT_ID,
           `🤖 Auto-rejected 3 times: **${task.title}**. Flagging for human review. Reasons: ${reviewResult.reasons.join(', ')}.`,
           'alert',
@@ -139,15 +139,15 @@ export async function processAutoReview(taskId: string): Promise<void> {
         );
       } else {
         // Reset to todo for retry
-        db.prepare(`
-          UPDATE tasks SET status = 'todo', retry_count = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(newRetryCount, taskId);
+        await db.run(`
+          UPDATE tasks SET status = 'todo', retry_count = $1, updated_at = NOW()
+          WHERE id = $2
+        `, [newRetryCount, taskId]);
 
         // Delete the completed result so agent re-runs fresh
-        db.prepare(`DELETE FROM task_results WHERE task_id = ? AND status = 'completed'`).run(taskId);
+        await db.run(`DELETE FROM task_results WHERE task_id = $1 AND status = 'completed'`, [taskId]);
 
-        postCommsMessage(
+        await postCommsMessage(
           SYSTEM_AGENT_ID,
           `🤖 Auto-rejected: **${task.title}**. Reasons: ${reviewResult.reasons.join(', ')}. Retrying (attempt ${newRetryCount + 1}/3).`,
           'system'
@@ -159,7 +159,7 @@ export async function processAutoReview(taskId: string): Promise<void> {
 
     case 'flag':
       // Keep status as review, post flag message
-      postCommsMessage(
+      await postCommsMessage(
         SYSTEM_AGENT_ID,
         `👀 Flagged for review: **${task.title}**. Reasons: ${reviewResult.reasons.join(', ')}.`,
         'alert'

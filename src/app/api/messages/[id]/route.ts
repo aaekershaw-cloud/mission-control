@@ -10,21 +10,21 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
 
-    const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
+    const existing = await db.get('SELECT id FROM messages WHERE id = $1', [id]);
     if (!existing) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
     if ('read' in body) {
-      db.prepare('UPDATE messages SET read = ? WHERE id = ?').run(body.read ? 1 : 0, id);
+      await db.run('UPDATE messages SET read = $1 WHERE id = $2', [body.read, id]);
     }
 
-    const row = db.prepare(`
+    const row = await db.get(`
       SELECT m.*, a.name AS from_agent_name, a.avatar AS from_agent_avatar
       FROM messages m
       LEFT JOIN agents a ON m.from_agent_id = a.id
-      WHERE m.id = ?
-    `).get(id) as Record<string, unknown>;
+      WHERE m.id = $1
+    `, [id]) as Record<string, unknown>;
 
     return NextResponse.json({
       id: row.id,
@@ -35,7 +35,7 @@ export async function PATCH(
       content: row.content,
       type: row.type,
       createdAt: row.created_at,
-      read: row.read === 1,
+      read: row.read as boolean,
     });
   } catch (error) {
     console.error('PATCH /api/messages/[id] error:', error);

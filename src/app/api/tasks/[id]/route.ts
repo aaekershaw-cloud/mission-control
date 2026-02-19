@@ -10,12 +10,12 @@ export async function GET(
     const db = getDb();
     const { id } = await params;
 
-    const row = db.prepare(`
+    const row = await db.get(`
       SELECT t.*, a.name AS assignee_name, a.avatar AS assignee_avatar
       FROM tasks t
       LEFT JOIN agents a ON t.assignee_id = a.id
-      WHERE t.id = ?
-    `).get(id) as Record<string, unknown> | undefined;
+      WHERE t.id = $1
+    `, [id]) as Record<string, unknown> | null;
 
     if (!row) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
@@ -31,7 +31,7 @@ export async function GET(
       assigneeName: row.assignee_name ?? null,
       assigneeAvatar: row.assignee_avatar ?? null,
       squadId: row.squad_id,
-      tags: JSON.parse((row.tags as string) || '[]'),
+      tags: Array.isArray(row.tags) ? row.tags : (row.tags ? JSON.parse(row.tags as string) : []),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
@@ -58,7 +58,7 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
-    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    const existing = await db.get('SELECT * FROM tasks WHERE id = $1', [id]) as Record<string, unknown> | null;
     if (!existing) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
@@ -77,36 +77,41 @@ export async function PUT(
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
+    let paramIndex = 1;
 
     for (const [camel, snake] of Object.entries(allowedFields)) {
       if (camel in body) {
-        setClauses.push(`${snake} = ?`);
+        setClauses.push(`${snake} = $${paramIndex}`);
         values.push(body[camel]);
+        paramIndex++;
       }
     }
 
     if ('tags' in body) {
-      setClauses.push('tags = ?');
+      setClauses.push(`tags = $${paramIndex}`);
       values.push(JSON.stringify(body.tags));
+      paramIndex++;
     }
 
     if ('dependsOn' in body) {
-      setClauses.push('depends_on = ?');
+      setClauses.push(`depends_on = $${paramIndex}`);
       const dep = body.dependsOn;
       values.push(Array.isArray(dep) ? dep.join(',') : (dep || ''));
+      paramIndex++;
     }
 
     // Handle status change to 'done'
     const newStatus = body.status;
     const oldStatus = existing.status;
     if (newStatus === 'done' && oldStatus !== 'done') {
-      setClauses.push("completed_at = datetime('now')");
+      setClauses.push('completed_at = NOW()');
       // Increment agent's tasks_completed if assigned
       const assigneeId = body.assigneeId ?? existing.assignee_id;
       if (assigneeId) {
-        db.prepare(
-          'UPDATE agents SET tasks_completed = tasks_completed + 1, updated_at = datetime(\'now\') WHERE id = ?'
-        ).run(assigneeId);
+        await db.run(
+          'UPDATE agents SET tasks_completed = tasks_completed + 1, updated_at = NOW() WHERE id = $1',
+          [assigneeId]
+        );
       }
     }
 
@@ -122,24 +127,25 @@ export async function PUT(
       );
     }
 
-    setClauses.push("updated_at = datetime('now')");
-    values.push(id);
+    setClauses.push('updated_at = NOW()');
+    values.push(id); // Add id as the final parameter
 
-    db.prepare(
-      `UPDATE tasks SET ${setClauses.join(', ')} WHERE id = ?`
-    ).run(...values);
+    await db.run(
+      `UPDATE tasks SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+      values
+    );
 
     // Auto-start queue if task moved to todo
     if (newStatus === 'todo') {
-      triggerQueueIfNeeded();
+      await triggerQueueIfNeeded();
     }
 
-    const row = db.prepare(`
+    const row = await db.get(`
       SELECT t.*, a.name AS assignee_name, a.avatar AS assignee_avatar
       FROM tasks t
       LEFT JOIN agents a ON t.assignee_id = a.id
-      WHERE t.id = ?
-    `).get(id) as Record<string, unknown>;
+      WHERE t.id = $1
+    `, [id]) as Record<string, unknown>;
 
     return NextResponse.json({
       id: row.id,
@@ -151,7 +157,7 @@ export async function PUT(
       assigneeName: row.assignee_name ?? null,
       assigneeAvatar: row.assignee_avatar ?? null,
       squadId: row.squad_id,
-      tags: JSON.parse((row.tags as string) || '[]'),
+      tags: Array.isArray(row.tags) ? row.tags : (row.tags ? JSON.parse(row.tags as string) : []),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
@@ -177,12 +183,12 @@ export async function DELETE(
     const db = getDb();
     const { id } = await params;
 
-    const existing = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
+    const existing = await db.get('SELECT id FROM tasks WHERE id = $1', [id]);
     if (!existing) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+    await db.run('DELETE FROM tasks WHERE id = $1', [id]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

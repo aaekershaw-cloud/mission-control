@@ -9,16 +9,17 @@ export async function GET(
     const db = getDb();
     const { id } = await params;
 
-    const row = db.prepare('SELECT * FROM squads WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    const row = await db.get('SELECT * FROM squads WHERE id = $1', [id]) as Record<string, unknown> | undefined;
 
     if (!row) {
       return NextResponse.json({ error: 'Squad not found' }, { status: 404 });
     }
 
     // Get full agent details for this squad
-    const agents = db.prepare(
-      'SELECT * FROM agents WHERE squad_id = ? ORDER BY created_at ASC'
-    ).all(id) as Record<string, unknown>[];
+    const agents = await db.all(
+      'SELECT * FROM agents WHERE squad_id = $1 ORDER BY created_at ASC',
+      [id]
+    ) as Record<string, unknown>[];
 
     const agentList = agents.map((a) => ({
       id: a.id,
@@ -39,7 +40,7 @@ export async function GET(
       name: row.name,
       description: row.description,
       leadAgentId: row.lead_agent_id,
-      agentIds: JSON.parse((row.agent_ids as string) || '[]'),
+      agentIds: row.agent_ids || [], // JSONB - already parsed
       createdAt: row.created_at,
       status: row.status,
       agents: agentList,
@@ -62,7 +63,7 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
-    const existing = db.prepare('SELECT id FROM squads WHERE id = ?').get(id);
+    const existing = await db.get('SELECT id FROM squads WHERE id = $1', [id]);
     if (!existing) {
       return NextResponse.json({ error: 'Squad not found' }, { status: 404 });
     }
@@ -76,42 +77,45 @@ export async function PUT(
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
+    let paramIndex = 1;
 
     for (const [camel, snake] of Object.entries(allowedFields)) {
       if (camel in body) {
-        setClauses.push(`${snake} = ?`);
+        setClauses.push(`${snake} = $${paramIndex++}`);
         values.push(body[camel]);
       }
     }
 
     if ('agentIds' in body) {
-      setClauses.push('agent_ids = ?');
+      setClauses.push(`agent_ids = $${paramIndex++}`);
       values.push(JSON.stringify(body.agentIds));
 
       // Remove new agents from their previous squads' agent_ids lists
       if (body.agentIds.length > 0) {
-        const placeholders = body.agentIds.map(() => '?').join(',');
-        const previousSquads = db.prepare(
-          `SELECT DISTINCT squad_id FROM agents WHERE squad_id IS NOT NULL AND squad_id != ? AND id IN (${placeholders})`
-        ).all(id, ...body.agentIds) as Array<{ squad_id: string }>;
+        const placeholders = body.agentIds.map((_, i) => `$${i + 2}`).join(',');
+        const previousSquads = await db.all(
+          `SELECT DISTINCT squad_id FROM agents WHERE squad_id IS NOT NULL AND squad_id != $1 AND id IN (${placeholders})`,
+          [id, ...body.agentIds]
+        ) as Array<{ squad_id: string }>;
 
         for (const { squad_id: oldSquadId } of previousSquads) {
-          const oldSquad = db.prepare('SELECT agent_ids FROM squads WHERE id = ?').get(oldSquadId) as { agent_ids: string } | undefined;
+          const oldSquad = await db.get('SELECT agent_ids FROM squads WHERE id = $1', [oldSquadId]) as { agent_ids: string } | undefined;
           if (oldSquad) {
             const oldList: string[] = JSON.parse(oldSquad.agent_ids || '[]');
             const updated = oldList.filter((aid: string) => !body.agentIds.includes(aid));
-            db.prepare('UPDATE squads SET agent_ids = ? WHERE id = ?').run(JSON.stringify(updated), oldSquadId);
+            await db.run('UPDATE squads SET agent_ids = $1 WHERE id = $2', [JSON.stringify(updated), oldSquadId]);
           }
         }
       }
 
       // Update agents' squad_id: clear old, set new
-      db.prepare('UPDATE agents SET squad_id = NULL, updated_at = datetime(\'now\') WHERE squad_id = ?').run(id);
+      await db.run('UPDATE agents SET squad_id = NULL, updated_at = NOW() WHERE squad_id = $1', [id]);
       if (body.agentIds.length > 0) {
-        const placeholders = body.agentIds.map(() => '?').join(',');
-        db.prepare(
-          `UPDATE agents SET squad_id = ?, updated_at = datetime('now') WHERE id IN (${placeholders})`
-        ).run(id, ...body.agentIds);
+        const placeholders = body.agentIds.map((_, i) => `$${i + 2}`).join(',');
+        await db.run(
+          `UPDATE agents SET squad_id = $1, updated_at = NOW() WHERE id IN (${placeholders})`,
+          [id, ...body.agentIds]
+        );
       }
     }
 
@@ -124,11 +128,12 @@ export async function PUT(
 
     values.push(id);
 
-    db.prepare(
-      `UPDATE squads SET ${setClauses.join(', ')} WHERE id = ?`
-    ).run(...values);
+    await db.run(
+      `UPDATE squads SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+      values
+    );
 
-    const row = db.prepare('SELECT * FROM squads WHERE id = ?').get(id) as Record<string, unknown>;
+    const row = await db.get('SELECT * FROM squads WHERE id = $1', [id]) as Record<string, unknown>;
 
     return NextResponse.json({
       id: row.id,
@@ -156,16 +161,16 @@ export async function DELETE(
     const db = getDb();
     const { id } = await params;
 
-    const existing = db.prepare('SELECT id FROM squads WHERE id = ?').get(id);
+    const existing = await db.get('SELECT id FROM squads WHERE id = $1', [id]);
     if (!existing) {
       return NextResponse.json({ error: 'Squad not found' }, { status: 404 });
     }
 
     // Clear squad_id from agents
-    db.prepare('UPDATE agents SET squad_id = NULL, updated_at = datetime(\'now\') WHERE squad_id = ?').run(id);
+    await db.run('UPDATE agents SET squad_id = NULL, updated_at = NOW() WHERE squad_id = $1', [id]);
 
     // Mark as disbanded and clear agent_ids list
-    db.prepare("UPDATE squads SET status = 'disbanded', agent_ids = '[]', lead_agent_id = NULL WHERE id = ?").run(id);
+    await db.run("UPDATE squads SET status = 'disbanded', agent_ids = '[]', lead_agent_id = NULL WHERE id = $1", [id]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

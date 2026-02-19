@@ -8,15 +8,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
-    const rows = db.prepare(`
+    const rows = await db.all(`
       SELECT m.*,
         a.name AS from_agent_name,
         a.avatar AS from_agent_avatar
       FROM messages m
       LEFT JOIN agents a ON m.from_agent_id = a.id
       ORDER BY m.created_at DESC
-      LIMIT ?
-    `).all(limit) as Record<string, unknown>[];
+      LIMIT $1
+    `, [limit]) as Record<string, unknown>[];
 
     const messages = rows.map((row) => ({
       id: row.id,
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       content: row.content,
       type: row.type,
       createdAt: row.created_at,
-      read: row.read === 1,
+      read: !!row.read, // Convert to boolean
     }));
 
     return NextResponse.json(messages);
@@ -62,17 +62,18 @@ export async function POST(request: NextRequest) {
     const id = uuid();
     const now = new Date().toISOString();
 
-    db.prepare(
+    await db.run(
       `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(id, fromAgentId, toAgentId, content, type, now);
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, fromAgentId, toAgentId, content, type, now]
+    );
 
-    const row = db.prepare(`
+    const row = await db.get(`
       SELECT m.*, a.name AS from_agent_name, a.avatar AS from_agent_avatar
       FROM messages m
       LEFT JOIN agents a ON m.from_agent_id = a.id
-      WHERE m.id = ?
-    `).get(id) as Record<string, unknown>;
+      WHERE m.id = $1
+    `, [id]) as Record<string, unknown>;
 
     return NextResponse.json(
       {
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
         content: row.content,
         type: row.type,
         createdAt: row.created_at,
-        read: row.read === 1,
+        read: !!row.read, // Convert to boolean
       },
       { status: 201 }
     );

@@ -20,23 +20,27 @@ export async function GET(request: NextRequest) {
       WHERE 1=1
     `;
     const params: string[] = [];
+    let paramIndex = 1;
 
     if (status) {
-      query += ' AND t.status = ?';
+      query += ` AND t.status = $${paramIndex}`;
       params.push(status);
+      paramIndex++;
     }
     if (assigneeId) {
-      query += ' AND t.assignee_id = ?';
+      query += ` AND t.assignee_id = $${paramIndex}`;
       params.push(assigneeId);
+      paramIndex++;
     }
     if (squadId) {
-      query += ' AND t.squad_id = ?';
+      query += ` AND t.squad_id = $${paramIndex}`;
       params.push(squadId);
+      paramIndex++;
     }
 
     query += ' ORDER BY t.created_at DESC';
 
-    const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
+    const rows = await db.all(query, params) as Record<string, unknown>[];
 
     const tasks = rows.map((row) => ({
       id: row.id,
@@ -48,7 +52,7 @@ export async function GET(request: NextRequest) {
       assigneeName: row.assignee_name ?? null,
       assigneeAvatar: row.assignee_avatar ?? null,
       squadId: row.squad_id,
-      tags: (() => { try { return JSON.parse((row.tags as string) || '[]'); } catch { return (row.tags as string || '').split(',').map((s: string) => s.trim()).filter(Boolean); } })(),
+      tags: Array.isArray(row.tags) ? row.tags : (row.tags ? JSON.parse(row.tags as string) : []),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
@@ -97,21 +101,22 @@ export async function POST(request: NextRequest) {
     // dependsOn can be string (comma-sep IDs) or array
     const dependsOnStr = Array.isArray(dependsOn) ? dependsOn.join(',') : (dependsOn || '');
 
-    db.prepare(
+    await db.run(
       `INSERT INTO tasks (id, title, description, status, priority, assignee_id, squad_id, tags, estimated_tokens, depends_on, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, title, description, status, priority, assigneeId, squadId, JSON.stringify(tags), estimatedTokens, dependsOnStr, now, now);
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [id, title, description, status, priority, assigneeId, squadId, JSON.stringify(tags), estimatedTokens, dependsOnStr, now, now]
+    );
 
-    const row = db.prepare(`
+    const row = await db.get(`
       SELECT t.*, a.name AS assignee_name, a.avatar AS assignee_avatar
       FROM tasks t
       LEFT JOIN agents a ON t.assignee_id = a.id
-      WHERE t.id = ?
-    `).get(id) as Record<string, unknown>;
+      WHERE t.id = $1
+    `, [id]) as Record<string, unknown>;
 
     // Auto-start queue if task created as todo
     if (status === 'todo') {
-      triggerQueueIfNeeded();
+      await triggerQueueIfNeeded();
     }
 
     return NextResponse.json(
@@ -125,7 +130,7 @@ export async function POST(request: NextRequest) {
         assigneeName: row.assignee_name ?? null,
         assigneeAvatar: row.assignee_avatar ?? null,
         squadId: row.squad_id,
-        tags: (() => { try { return JSON.parse((row.tags as string) || '[]'); } catch { return (row.tags as string || '').split(',').map((s: string) => s.trim()).filter(Boolean); } })(),
+        tags: Array.isArray(row.tags) ? row.tags : (row.tags ? JSON.parse(row.tags as string) : []),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         completedAt: row.completed_at,

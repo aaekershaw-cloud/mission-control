@@ -19,19 +19,22 @@ export async function GET(request: NextRequest) {
       WHERE 1=1
     `;
     const params: string[] = [];
+    let paramIndex = 1;
 
     if (status) {
-      query += ' AND a.status = ?';
+      query += ` AND a.status = $${paramIndex}`;
       params.push(status);
+      paramIndex++;
     }
     if (squadId) {
-      query += ' AND a.squad_id = ?';
+      query += ` AND a.squad_id = $${paramIndex}`;
       params.push(squadId);
+      paramIndex++;
     }
 
     query += ' ORDER BY a.created_at ASC';
 
-    const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
+    const rows = await db.all(query, params) as Record<string, unknown>[];
 
     const agents = rows.map((row) => ({
       id: row.id,
@@ -98,12 +101,13 @@ export async function POST(request: NextRequest) {
     const id = uuid();
     const now = new Date().toISOString();
 
-    db.prepare(
+    await db.run(
       `INSERT INTO agents (id, name, codename, avatar, role, status, personality, soul, provider, model, squad_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'offline', ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, name, codename, avatar, role, personality, soul, provider, model, squadId, now, now);
+       VALUES ($1, $2, $3, $4, $5, 'offline', $6, $7, $8, $9, $10, $11, $12)`,
+      [id, name, codename, avatar, role, personality, soul, provider, model, squadId, now, now]
+    );
 
-    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown>;
+    const row = await db.get('SELECT * FROM agents WHERE id = $1', [id]) as Record<string, unknown>;
 
     return NextResponse.json(
       {

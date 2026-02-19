@@ -49,8 +49,8 @@ export async function POST(req: NextRequest) {
     for (const r of results) {
       const status = r.ok ? '✅' : '❌';
       const msg = `${status} Social post to ${r.platform}: ${r.ok ? `Posted (ID: ${r.id || 'queued'})` : r.error}`;
-      db.prepare("INSERT INTO messages (id, content, type) VALUES (?, ?, 'system')")
-        .run(require('uuid').v4(), msg);
+      await db.run("INSERT INTO messages (id, content, type) VALUES ($1, $2, 'system')", 
+        [require('uuid').v4(), msg]);
     }
   }
 

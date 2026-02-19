@@ -66,24 +66,24 @@ export async function POST(req: NextRequest) {
   let tasks: Array<Record<string, unknown>>;
 
   if (body.taskId) {
-    const task = db.prepare(`
+    const task = await db.get(`
       SELECT t.*, tr.response, a.name as agent_name
       FROM tasks t
       JOIN task_results tr ON tr.task_id = t.id AND tr.status = 'completed'
       LEFT JOIN agents a ON t.assignee_id = a.id
-      WHERE t.id = ? AND t.status = 'done'
+      WHERE t.id = $1 AND t.status = 'done'
       ORDER BY tr.created_at DESC
-    `).get(body.taskId) as Record<string, unknown> | undefined;
+    `, [body.taskId]) as Record<string, unknown> | undefined;
     tasks = task ? [task] : [];
   } else if (body.all) {
-    tasks = db.prepare(`
+    tasks = (await db.all(`
       SELECT t.*, tr.response, a.name as agent_name,
         ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY tr.created_at DESC) as rn
       FROM tasks t
       JOIN task_results tr ON tr.task_id = t.id AND tr.status = 'completed'
       LEFT JOIN agents a ON t.assignee_id = a.id
       WHERE t.status = 'done' AND tr.response IS NOT NULL
-    `).all().filter((r) => (r as { rn: number }).rn === 1) as Array<Record<string, unknown>>;
+    `, [])).filter((r) => (r as { rn: number }).rn === 1) as Array<Record<string, unknown>>;
   } else {
     return NextResponse.json({ error: 'Provide taskId or all:true' }, { status: 400 });
   }

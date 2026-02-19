@@ -19,11 +19,11 @@ export async function POST(req: NextRequest) {
 
   if (body.taskId) {
     // Parse from a completed Producer task result
-    const result = db.prepare(`
+    const result = await db.get(`
       SELECT tr.response FROM task_results tr
-      WHERE tr.task_id = ? AND tr.status = 'completed'
+      WHERE tr.task_id = $1 AND tr.status = 'completed'
       ORDER BY tr.created_at DESC LIMIT 1
-    `).get(body.taskId) as { response: string } | undefined;
+    `, [body.taskId]) as { response: string } | undefined;
 
     if (!result) {
       return NextResponse.json({ error: 'No completed result found for task' }, { status: 404 });
@@ -59,11 +59,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Resolve agent codenames to IDs
-  const agents = db.prepare('SELECT id, codename FROM agents').all() as Array<{ id: string; codename: string }>;
+  const agents = await db.all('SELECT id, codename FROM agents', []) as Array<{ id: string; codename: string }>;
   const agentMap = new Map(agents.map(a => [a.codename.toUpperCase(), a.id]));
 
   // Resolve depends_on_title to task IDs
-  const allTasks = db.prepare('SELECT id, title FROM tasks').all() as Array<{ id: string; title: string }>;
+  const allTasks = await db.all('SELECT id, title FROM tasks', []) as Array<{ id: string; title: string }>;
   const titleToId = new Map(allTasks.map(t => [t.title.toLowerCase(), t.id]));
 
   const created: string[] = [];
@@ -88,10 +88,10 @@ export async function POST(req: NextRequest) {
 
     const status = dependsOn ? 'backlog' : 'todo';
 
-    db.prepare(`
+    await db.run(`
       INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, depends_on, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `).run(id, title, description, status, priority, assigneeId, tags, dependsOn);
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+    `, [id, title, description, status, priority, assigneeId, tags, dependsOn]);
 
     newTitleToId.set(title.toLowerCase(), id);
     created.push(id);

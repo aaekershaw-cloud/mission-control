@@ -7,13 +7,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '100', 10);
 
-    const rows = db.prepare(`
+    const rows = await db.all(`
       SELECT h.*, a.name AS agent_name, a.avatar AS agent_avatar, a.codename AS agent_codename
       FROM heartbeats h
       LEFT JOIN agents a ON h.agent_id = a.id
       ORDER BY h.timestamp DESC
-      LIMIT ?
-    `).all(limit) as Record<string, unknown>[];
+      LIMIT $1
+    `, [limit]) as Record<string, unknown>[];
 
     const heartbeats = rows.map((row) => ({
       id: row.id,
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify agent exists
-    const agent = db.prepare('SELECT id FROM agents WHERE id = ?').get(agentId);
+    const agent = await db.get('SELECT id FROM agents WHERE id = $1', [agentId]);
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
@@ -67,34 +67,38 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     // Insert heartbeat record
-    db.prepare(
+    await db.run(
       `INSERT INTO heartbeats (agent_id, status, timestamp, task_progress, memory_usage, tokens_used_session)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(agentId, status, now, taskProgress, memoryUsage, tokensUsedSession);
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [agentId, status, now, taskProgress, memoryUsage, tokensUsedSession]
+    );
 
     // Update agent's last_heartbeat and status
-    db.prepare(
-      "UPDATE agents SET last_heartbeat = ?, status = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(now, status, agentId);
+    await db.run(
+      "UPDATE agents SET last_heartbeat = $1, status = $2, updated_at = NOW() WHERE id = $3",
+      [now, status, agentId]
+    );
 
     // Fetch pending tasks assigned to this agent
-    const pendingTasks = db.prepare(
-      "SELECT id, title, status, priority FROM tasks WHERE assignee_id = ? AND status IN ('todo', 'in_progress') ORDER BY priority ASC"
-    ).all(agentId) as Record<string, unknown>[];
+    const pendingTasks = await db.all(
+      "SELECT id, title, status, priority FROM tasks WHERE assignee_id = $1 AND status IN ('todo', 'in_progress') ORDER BY priority ASC",
+      [agentId]
+    ) as Record<string, unknown>[];
 
     // Fetch unread messages for this agent
-    const unreadMessages = db.prepare(`
+    const unreadMessages = await db.all(`
       SELECT m.*, a.name AS from_agent_name, a.avatar AS from_agent_avatar
       FROM messages m
       LEFT JOIN agents a ON m.from_agent_id = a.id
-      WHERE (m.to_agent_id = ? OR m.to_agent_id IS NULL) AND m.read = 0
+      WHERE (m.to_agent_id = $1 OR m.to_agent_id IS NULL) AND m.read = false
       ORDER BY m.created_at DESC LIMIT 10
-    `).all(agentId) as Record<string, unknown>[];
+    `, [agentId]) as Record<string, unknown>[];
 
     // Mark them as read
-    db.prepare(
-      `UPDATE messages SET read = 1 WHERE (to_agent_id = ? OR to_agent_id IS NULL) AND read = 0`
-    ).run(agentId);
+    await db.run(
+      `UPDATE messages SET read = true WHERE (to_agent_id = $1 OR to_agent_id IS NULL) AND read = false`,
+      [agentId]
+    );
 
     return NextResponse.json({
       received: true,

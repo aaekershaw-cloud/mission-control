@@ -6,13 +6,14 @@ import { v4 as uuid } from 'uuid';
 
 const SYSTEM_AGENT_ID = 'system';
 
-function postCommsMessage(fromAgentId: string, content: string, type: string, toAgentId: string | null = null) {
+async function postCommsMessage(fromAgentId: string, content: string, type: string, toAgentId: string | null = null) {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, fromAgentId, toAgentId, content, type, now);
+  await db.run(
+    `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, fromAgentId, toAgentId, content, type, now]
+  );
 }
 
 export async function GET(
@@ -22,32 +23,32 @@ export async function GET(
   const { id: taskId } = await params;
   const db = getDb();
 
-  const task = db.prepare(`
+  const task = await db.get(`
     SELECT t.*, a.name as agent_name, a.avatar as agent_avatar, a.codename as agent_codename
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
-    WHERE t.id = ?
-  `).get(taskId) as Record<string, unknown> | undefined;
+    WHERE t.id = $1
+  `, [taskId]) as Record<string, unknown> | undefined;
 
   if (!task) {
     return NextResponse.json({ error: 'Task not found' }, { status: 404 });
   }
 
-  const latestResult = db.prepare(`
+  const latestResult = await db.get(`
     SELECT tr.*, a.name as agent_name, a.avatar as agent_avatar
     FROM task_results tr
     LEFT JOIN agents a ON tr.agent_id = a.id
-    WHERE tr.task_id = ? AND tr.status = 'completed'
+    WHERE tr.task_id = $1 AND tr.status = 'completed'
     ORDER BY tr.created_at DESC LIMIT 1
-  `).get(taskId) as Record<string, unknown> | undefined;
+  `, [taskId]) as Record<string, unknown> | undefined;
 
   // Get latest auto-review result if one exists
-  const autoReview = db.prepare(`
+  const autoReview = await db.get(`
     SELECT * FROM auto_reviews 
-    WHERE task_id = ? 
+    WHERE task_id = $1
     ORDER BY created_at DESC 
     LIMIT 1
-  `).get(taskId) as Record<string, unknown> | undefined;
+  `, [taskId]) as Record<string, unknown> | undefined;
 
   let parsedAutoReview = null;
   if (autoReview) {
@@ -74,22 +75,22 @@ export async function POST(
   const body = await req.json();
   const { action, feedback } = body as { action: string; feedback?: string };
 
-  const task = db.prepare(`
+  const task = await db.get(`
     SELECT t.*, a.name as agent_name, a.avatar as agent_avatar
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
-    WHERE t.id = ?
-  `).get(taskId) as Record<string, string> | undefined;
+    WHERE t.id = $1
+  `, [taskId]) as Record<string, string> | undefined;
 
   if (!task) {
     return NextResponse.json({ error: 'Task not found' }, { status: 404 });
   }
 
   if (action === 'approve') {
-    db.prepare(`
-      UPDATE tasks SET status = 'done', completed_at = datetime('now'), updated_at = datetime('now')
-      WHERE id = ?
-    `).run(taskId);
+    await db.run(`
+      UPDATE tasks SET status = 'done', completed_at = NOW(), updated_at = NOW()
+      WHERE id = $1
+    `, [taskId]);
 
     // Unlock any chained/dependent tasks waiting on this one
     unlockDependentTasks(taskId);
@@ -98,17 +99,17 @@ export async function POST(
     // Post approval comms message
     let approveContent = `✅ Task approved: **${task.title}**. Great work!`;
     // Check for dependent tasks that got unlocked
-    const dependentTasks = db.prepare(`
+    const dependentTasks = await db.all(`
       SELECT t.id, t.title, t.assignee_id, a.name as assignee_name
       FROM tasks t LEFT JOIN agents a ON t.assignee_id = a.id
-      WHERE t.depends_on LIKE ?
-    `).all(`%${taskId}%`) as Array<{ id: string; title: string; assignee_id: string | null; assignee_name: string | null }>;
+      WHERE t.depends_on LIKE $1
+    `, [`%${taskId}%`]) as Array<{ id: string; title: string; assignee_id: string | null; assignee_name: string | null }>;
     for (const dep of dependentTasks) {
       if (dep.assignee_name) {
         approveContent += `\n@${dep.assignee_name} — your task **${dep.title}** is now unblocked and ready to go.`;
       }
     }
-    postCommsMessage(task.assignee_id || SYSTEM_AGENT_ID, approveContent, 'system');
+    await postCommsMessage(task.assignee_id || SYSTEM_AGENT_ID, approveContent, 'system');
 
     // Auto-export approved content to website content directory
     fetch('http://localhost:3003/api/export', {
@@ -120,16 +121,16 @@ export async function POST(
     }).catch(err => console.error('[Export] Failed:', err));
 
     // Auto-post to social media if this is a social content task
-    const taskTags = (() => { try { return JSON.parse(task.tags || '[]'); } catch { return []; } })() as string[];
+    const taskTags = (() => { try { return task.tags || []; } catch { return []; } })() as string[];
     const taskTitle = (task.title || '').toLowerCase();
     const isSocial = taskTags.some((t: string) => ['social', 'instagram', 'twitter', 'x', 'tiktok', 'caption'].includes(t.toLowerCase()))
       || taskTitle.includes('instagram') || taskTitle.includes('caption') || taskTitle.includes('social') || taskTitle.includes('tweet');
 
     if (isSocial) {
       // Get the latest result to extract post text
-      const latestResult = db.prepare(`
-        SELECT response FROM task_results WHERE task_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1
-      `).get(taskId) as { response: string } | undefined;
+      const latestResult = await db.get(`
+        SELECT response FROM task_results WHERE task_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1
+      `, [taskId]) as { response: string } | undefined;
 
       if (latestResult) {
         // Extract individual posts separated by ---
@@ -156,7 +157,7 @@ export async function POST(
       }
     }
 
-    checkAndTriggerProducer();
+    await checkAndTriggerProducer();
     return NextResponse.json({ ok: true, message: 'Task approved and completed.' });
   }
 
@@ -167,21 +168,21 @@ export async function POST(
 
     const newDesc = `${task.description || ''}\n\n---\n**Review Feedback (Rejected):** ${feedback}`.trim();
 
-    db.prepare(`
-      UPDATE tasks SET status = 'todo', description = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(newDesc, taskId);
+    await db.run(`
+      UPDATE tasks SET status = 'todo', description = $1, updated_at = NOW()
+      WHERE id = $2
+    `, [newDesc, taskId]);
 
     // Delete the completed result so agent re-runs fresh
-    db.prepare(`DELETE FROM task_results WHERE task_id = ? AND status = 'completed'`).run(taskId);
+    await db.run(`DELETE FROM task_results WHERE task_id = $1 AND status = 'completed'`, [taskId]);
 
     triggerQueueIfNeeded();
 
     // Post rejection comms message
     const assigneeName = task.agent_name || 'Agent';
-    postCommsMessage(SYSTEM_AGENT_ID, `❌ Task rejected: **${task.title}**. Feedback: ${feedback}. @${assigneeName} — please review the feedback and re-do this task.`, 'alert', task.assignee_id || null);
+    await postCommsMessage(SYSTEM_AGENT_ID, `❌ Task rejected: **${task.title}**. Feedback: ${feedback}. @${assigneeName} — please review the feedback and re-do this task.`, 'alert', task.assignee_id || null);
 
-    checkAndTriggerProducer();
+    await checkAndTriggerProducer();
     return NextResponse.json({ ok: true, message: 'Task rejected and returned to todo.' });
   }
 
@@ -191,19 +192,19 @@ export async function POST(
     }
 
     // Approve the original task first
-    db.prepare(`
-      UPDATE tasks SET status = 'done', completed_at = datetime('now'), updated_at = datetime('now')
-      WHERE id = ?
-    `).run(taskId);
+    await db.run(`
+      UPDATE tasks SET status = 'done', completed_at = NOW(), updated_at = NOW()
+      WHERE id = $1
+    `, [taskId]);
 
     // Create a new revision task
     const newId = uuid();
     const reviseDesc = `**Revision of:** ${task.title}\n**Feedback:** ${feedback}\n\n---\nOriginal description:\n${task.description || '(none)'}`;
 
-    db.prepare(`
+    await db.run(`
       INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, depends_on, created_at, updated_at)
-      VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `).run(
+      VALUES ($1, $2, $3, 'todo', $4, $5, $6, $7, NOW(), NOW())
+    `, [
       newId,
       `Revise: ${task.title}`,
       reviseDesc,
@@ -211,15 +212,15 @@ export async function POST(
       task.assignee_id,
       task.tags || '[]',
       taskId,
-    );
+    ]);
 
     triggerQueueIfNeeded();
 
     // Post revision comms message
     const reviseAgentName = task.agent_name || 'Agent';
-    postCommsMessage(SYSTEM_AGENT_ID, `🔄 Revision requested: **${task.title}**. Feedback: ${feedback}. @${reviseAgentName} — a revision task has been created for you.`, 'alert', task.assignee_id || null);
+    await postCommsMessage(SYSTEM_AGENT_ID, `🔄 Revision requested: **${task.title}**. Feedback: ${feedback}. @${reviseAgentName} — a revision task has been created for you.`, 'alert', task.assignee_id || null);
 
-    checkAndTriggerProducer();
+    await checkAndTriggerProducer();
     return NextResponse.json({ ok: true, message: 'Revision task created.', newTaskId: newId });
   }
 
@@ -230,12 +231,12 @@ export async function POST(
  * After any review action, check if the review queue is empty.
  * If so and no todo/in_progress tasks remain, auto-trigger the Producer.
  */
-function checkAndTriggerProducer() {
+async function checkAndTriggerProducer() {
   const db = getDb();
-  const review = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status = 'review'").get() as { c: number };
+  const review = await db.get("SELECT COUNT(*) as c FROM tasks WHERE status = 'review'", []) as { c: number };
   if (review.c > 0) return; // still items to review
 
-  const active = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status IN ('todo', 'in_progress')").get() as { c: number };
+  const active = await db.get("SELECT COUNT(*) as c FROM tasks WHERE status IN ('todo', 'in_progress')", []) as { c: number };
   if (active.c > 0) return; // agents still working
 
   // Queue is dry — trigger Producer

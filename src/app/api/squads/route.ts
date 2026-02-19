@@ -6,19 +6,19 @@ export async function GET() {
   try {
     const db = getDb();
 
-    const rows = db.prepare(`
+    const rows = await db.all(`
       SELECT s.*,
         (SELECT COUNT(*) FROM agents a WHERE a.squad_id = s.id) AS agent_count
       FROM squads s
       ORDER BY s.created_at ASC
-    `).all() as Record<string, unknown>[];
+    `) as Record<string, unknown>[];
 
     const squads = rows.map((row) => ({
       id: row.id,
       name: row.name,
       description: row.description,
       leadAgentId: row.lead_agent_id,
-      agentIds: JSON.parse((row.agent_ids as string) || '[]'),
+      agentIds: row.agent_ids || [], // JSONB - already parsed
       createdAt: row.created_at,
       status: row.status,
       agentCount: row.agent_count,
@@ -54,38 +54,40 @@ export async function POST(request: NextRequest) {
     }
 
     const id = uuid();
-    const now = new Date().toISOString();
 
-    db.prepare(
+    await db.run(
       `INSERT INTO squads (id, name, description, lead_agent_id, agent_ids, created_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'active')`
-    ).run(id, name, description, leadAgentId, JSON.stringify(agentIds), now);
+       VALUES ($1, $2, $3, $4, $5, NOW(), 'active')`,
+      [id, name, description, leadAgentId, JSON.stringify(agentIds)]
+    );
 
     // Update agents' squad_id and remove them from their previous squads' agent_ids
     if (agentIds.length > 0) {
       // Find which squads these agents currently belong to
-      const placeholders = agentIds.map(() => '?').join(',');
-      const previousSquads = db.prepare(
-        `SELECT DISTINCT squad_id FROM agents WHERE squad_id IS NOT NULL AND id IN (${placeholders})`
-      ).all(...agentIds) as Array<{ squad_id: string }>;
+      const placeholders = agentIds.map((_, index) => `$${index + 1}`).join(',');
+      const previousSquads = await db.all(
+        `SELECT DISTINCT squad_id FROM agents WHERE squad_id IS NOT NULL AND id IN (${placeholders})`,
+        agentIds
+      ) as Array<{ squad_id: string }>;
 
       // Remove these agents from their old squads' agent_ids lists
       for (const { squad_id: oldSquadId } of previousSquads) {
-        const oldSquad = db.prepare('SELECT agent_ids FROM squads WHERE id = ?').get(oldSquadId) as { agent_ids: string } | undefined;
+        const oldSquad = await db.get('SELECT agent_ids FROM squads WHERE id = $1', [oldSquadId]) as { agent_ids: any } | undefined;
         if (oldSquad) {
-          const oldList: string[] = JSON.parse(oldSquad.agent_ids || '[]');
+          const oldList: string[] = oldSquad.agent_ids || []; // JSONB - already parsed
           const updated = oldList.filter((aid: string) => !agentIds.includes(aid));
-          db.prepare('UPDATE squads SET agent_ids = ? WHERE id = ?').run(JSON.stringify(updated), oldSquadId);
+          await db.run('UPDATE squads SET agent_ids = $1 WHERE id = $2', [JSON.stringify(updated), oldSquadId]);
         }
       }
 
       // Assign agents to the new squad
-      db.prepare(
-        `UPDATE agents SET squad_id = ?, updated_at = datetime('now') WHERE id IN (${placeholders})`
-      ).run(id, ...agentIds);
+      await db.run(
+        `UPDATE agents SET squad_id = $1, updated_at = NOW() WHERE id IN (${placeholders})`,
+        [id, ...agentIds]
+      );
     }
 
-    const row = db.prepare('SELECT * FROM squads WHERE id = ?').get(id) as Record<string, unknown>;
+    const row = await db.get('SELECT * FROM squads WHERE id = $1', [id]) as Record<string, unknown>;
 
     return NextResponse.json(
       {
@@ -93,7 +95,7 @@ export async function POST(request: NextRequest) {
         name: row.name,
         description: row.description,
         leadAgentId: row.lead_agent_id,
-        agentIds: JSON.parse((row.agent_ids as string) || '[]'),
+        agentIds: row.agent_ids || [], // JSONB - already parsed
         createdAt: row.created_at,
         status: row.status,
       },

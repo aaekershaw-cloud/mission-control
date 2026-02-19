@@ -34,14 +34,14 @@ export async function executeTask(
   const db = getDb();
 
   // Load task with agent info
-  const task = db.prepare(`
+  const task = await db.get(`
     SELECT t.*, a.id as agent_id, a.name as agent_name, a.avatar as agent_avatar,
            a.role as agent_role, a.personality as agent_personality, a.soul as agent_soul,
            a.provider as agent_provider, a.codename as agent_codename
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
-    WHERE t.id = ?
-  `).get(taskId) as Record<string, string> | undefined;
+    WHERE t.id = $1
+  `, [taskId]) as Record<string, string> | undefined;
 
   if (!task) {
     throw new Error(`Task ${taskId} not found`);
@@ -65,15 +65,16 @@ export async function executeTask(
       max_tokens: providerOverride.maxTokens ?? 8192,
     };
   } else {
-    const dbProvider = (db.prepare(
-      `SELECT * FROM provider_configs WHERE type = ? AND api_key != '' LIMIT 1`
-    ).get(task.agent_provider) as Record<string, string | number> | undefined)
-      ?? (db.prepare(
-        `SELECT * FROM provider_configs WHERE is_default = 1 AND api_key != '' LIMIT 1`
-      ).get() as Record<string, string | number> | undefined)
-      ?? (db.prepare(
+    const dbProvider = (await db.get(
+      `SELECT * FROM provider_configs WHERE type = $1 AND api_key != '' LIMIT 1`,
+      [task.agent_provider]
+    ) as Record<string, string | number> | undefined)
+      ?? (await db.get(
+        `SELECT * FROM provider_configs WHERE is_default = true AND api_key != '' LIMIT 1`
+      ) as Record<string, string | number> | undefined)
+      ?? (await db.get(
         `SELECT * FROM provider_configs WHERE api_key != '' LIMIT 1`
-      ).get() as Record<string, string | number> | undefined);
+      ) as Record<string, string | number> | undefined);
 
     if (!dbProvider) {
       throw new Error('No provider configured with an API key. Add one via Settings → Providers.');
@@ -89,8 +90,8 @@ export async function executeTask(
   }
 
   // Update statuses to in_progress
-  db.prepare("UPDATE tasks SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?").run(taskId);
-  db.prepare("UPDATE agents SET status = 'busy', current_task_id = ?, updated_at = datetime('now') WHERE id = ?").run(taskId, agentId);
+  await db.run("UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1", [taskId]);
+  await db.run("UPDATE agents SET status = 'busy', current_task_id = $1, updated_at = NOW() WHERE id = $2", [taskId, agentId]);
 
   // Build system prompt from agent soul/personality/role
   const outputFormatGuide = `
@@ -164,14 +165,15 @@ Structure each caption as a separate section divided by ---. Include hashtags at
     const contextParts: string[] = [];
 
     for (const parentId of parentIds) {
-      const parentTask = db.prepare('SELECT id, title FROM tasks WHERE id = ?').get(parentId) as Record<string, string> | undefined;
-      const parentResult = db.prepare(
+      const parentTask = await db.get('SELECT id, title FROM tasks WHERE id = $1', [parentId]) as Record<string, string> | undefined;
+      const parentResult = await db.get(
         `SELECT tr.response, a.name as agent_name
          FROM task_results tr
          LEFT JOIN agents a ON tr.agent_id = a.id
-         WHERE tr.task_id = ? AND tr.status = 'completed'
-         ORDER BY tr.created_at DESC LIMIT 1`
-      ).get(parentId) as Record<string, string> | undefined;
+         WHERE tr.task_id = $1 AND tr.status = 'completed'
+         ORDER BY tr.created_at DESC LIMIT 1`,
+        [parentId]
+      ) as Record<string, string> | undefined;
 
       if (parentTask && parentResult) {
         contextParts.push(
@@ -379,15 +381,15 @@ Structure each caption as a separate section divided by ---. Include hashtags at
     const durationMs = Date.now() - startTime;
 
     // Reset statuses on error
-    db.prepare("UPDATE tasks SET status = 'todo', updated_at = datetime('now') WHERE id = ?").run(taskId);
-    db.prepare("UPDATE agents SET status = 'online', current_task_id = NULL, updated_at = datetime('now') WHERE id = ?").run(agentId);
+    await db.run("UPDATE tasks SET status = 'todo', updated_at = NOW() WHERE id = $1", [taskId]);
+    await db.run("UPDATE agents SET status = 'online', current_task_id = NULL, updated_at = NOW() WHERE id = $1", [agentId]);
 
     // Store error result
     const resultId = uuid();
-    db.prepare(`
+    await db.run(`
       INSERT INTO task_results (id, task_id, agent_id, prompt, response, tokens_used, cost_usd, duration_ms, status)
-      VALUES (?, ?, ?, ?, ?, 0, 0, ?, 'error')
-    `).run(resultId, taskId, agentId, userPrompt, errMsg, durationMs);
+      VALUES ($1, $2, $3, $4, $5, 0, 0, $6, 'error')
+    `, [resultId, taskId, agentId, userPrompt, errMsg, durationMs]);
 
     return {
       id: resultId,
@@ -416,28 +418,26 @@ Structure each caption as a separate section divided by ---. Include hashtags at
 
   // Store result
   const resultId = uuid();
-  db.prepare(`
+  await db.run(`
     INSERT INTO task_results (id, task_id, agent_id, prompt, response, tokens_used, cost_usd, duration_ms, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')
-  `).run(resultId, taskId, agentId, userPrompt, finalResponse, tokensUsed, costUsd, durationMs);
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed')
+  `, [resultId, taskId, agentId, userPrompt, finalResponse, tokensUsed, costUsd, durationMs]);
 
   // Update task status → review, update tokens
-  db.prepare("UPDATE tasks SET status = 'review', actual_tokens = actual_tokens + ?, updated_at = datetime('now') WHERE id = ?")
-    .run(tokensUsed, taskId);
+  await db.run("UPDATE tasks SET status = 'review', actual_tokens = actual_tokens + $1, updated_at = NOW() WHERE id = $2", [tokensUsed, taskId]);
 
   // Update agent stats
-  db.prepare(`
+  await db.run(`
     UPDATE agents SET status = 'online', current_task_id = NULL,
-      tokens_used = tokens_used + ?, cost_usd = cost_usd + ?,
-      tasks_completed = tasks_completed + 1, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(tokensUsed, costUsd, agentId);
+      tokens_used = tokens_used + $1, cost_usd = cost_usd + $2,
+      tasks_completed = tasks_completed + 1, updated_at = NOW()
+    WHERE id = $3
+  `, [tokensUsed, costUsd, agentId]);
 
   // Log system message
   const msgId = uuid();
   const summary = `✅ Completed task "${task.title}" in ${(durationMs / 1000).toFixed(1)}s using ${tokensUsed} tokens ($${costUsd.toFixed(4)})`;
-  db.prepare("INSERT INTO messages (id, from_agent_id, content, type) VALUES (?, ?, ?, 'system')")
-    .run(msgId, agentId, summary);
+  await db.run("INSERT INTO messages (id, from_agent_id, content, type) VALUES ($1, $2, $3, 'system')", [msgId, agentId, summary]);
 
   // Notify for review
   notifyReviewReady({
@@ -450,7 +450,7 @@ Structure each caption as a separate section divided by ---. Include hashtags at
 
   // Unlock dependent tasks: any task whose depends_on includes this taskId
   // and all other dependencies are done or review → move from backlog → todo
-  unlockDependentTasks(taskId);
+  await unlockDependentTasks(taskId);
 
   // Auto-review the completed task (only for successful completion)
   try {
@@ -491,26 +491,29 @@ Structure each caption as a separate section divided by ---. Include hashtags at
  * After a task completes, find tasks that depend on it and check if they're unblocked.
  * If all dependencies are done/review, move from backlog → todo.
  */
-export function unlockDependentTasks(completedTaskId: string) {
+export async function unlockDependentTasks(completedTaskId: string) {
   const db = getDb();
 
   // Find all tasks that have depends_on set (non-empty)
-  const candidates = db.prepare(
+  const candidates = await db.all(
     `SELECT id, depends_on FROM tasks WHERE depends_on IS NOT NULL AND depends_on != '' AND status = 'backlog'`
-  ).all() as Array<{ id: string; depends_on: string }>;
+  ) as Array<{ id: string; depends_on: string }>;
 
   for (const candidate of candidates) {
     const deps = candidate.depends_on.split(',').map((s) => s.trim()).filter(Boolean);
     if (!deps.includes(completedTaskId)) continue;
 
     // Check if ALL dependencies are done or review
-    const allDone = deps.every((depId) => {
-      const depTask = db.prepare('SELECT status FROM tasks WHERE id = ?').get(depId) as { status: string } | undefined;
+    const allDonePromises = deps.map(async (depId) => {
+      const depTask = await db.get('SELECT status FROM tasks WHERE id = $1', [depId]) as { status: string } | undefined;
       return depTask && (depTask.status === 'done' || depTask.status === 'review');
     });
+    
+    const allDoneResults = await Promise.all(allDonePromises);
+    const allDone = allDoneResults.every(result => result);
 
     if (allDone) {
-      db.prepare("UPDATE tasks SET status = 'todo', updated_at = datetime('now') WHERE id = ?").run(candidate.id);
+      await db.run("UPDATE tasks SET status = 'todo', updated_at = NOW() WHERE id = $1", [candidate.id]);
     }
   }
 }

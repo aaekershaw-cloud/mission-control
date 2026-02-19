@@ -12,44 +12,44 @@ export async function POST() {
   const db = getDb();
 
   // Get Producer agent
-  const producer = db.prepare("SELECT id FROM agents WHERE codename = 'PRODUCER'").get() as { id: string } | undefined;
+  const producer = await db.get("SELECT id FROM agents WHERE codename = 'PRODUCER'", []) as { id: string } | undefined;
   if (!producer) {
     return NextResponse.json({ error: 'Producer agent not found' }, { status: 404 });
   }
 
   // Check if Producer already has a pending/in-progress task
-  const activeTask = db.prepare(`
-    SELECT id, status FROM tasks WHERE assignee_id = ? AND status IN ('todo', 'in_progress')
-  `).get(producer.id) as { id: string; status: string } | undefined;
+  const activeTask = await db.get(`
+    SELECT id, status FROM tasks WHERE assignee_id = $1 AND status IN ('todo', 'in_progress')
+  `, [producer.id]) as { id: string; status: string } | undefined;
   if (activeTask) {
     return NextResponse.json({ skipped: true, reason: 'Producer already has an active task', taskId: activeTask.id });
   }
 
   // Gather current state
-  const statusCounts = db.prepare(`
+  const statusCounts = await db.all(`
     SELECT status, COUNT(*) as count FROM tasks GROUP BY status
-  `).all() as Array<{ status: string; count: number }>;
+  `, []) as Array<{ status: string; count: number }>;
 
-  const recentCompleted = db.prepare(`
+  const recentCompleted = await db.all(`
     SELECT t.title, a.name as agent_name, t.completed_at
     FROM tasks t LEFT JOIN agents a ON t.assignee_id = a.id
     WHERE t.status = 'done' AND t.completed_at IS NOT NULL
     ORDER BY t.completed_at DESC LIMIT 15
-  `).all() as Array<{ title: string; agent_name: string; completed_at: string }>;
+  `, []) as Array<{ title: string; agent_name: string; completed_at: string }>;
 
-  const recentReview = db.prepare(`
+  const recentReview = await db.all(`
     SELECT t.title, a.name as agent_name FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
     WHERE t.status = 'review'
-  `).all() as Array<{ title: string; agent_name: string }>;
+  `, []) as Array<{ title: string; agent_name: string }>;
 
-  const agentWorkload = db.prepare(`
+  const agentWorkload = await db.all(`
     SELECT a.name, a.codename,
       (SELECT COUNT(*) FROM tasks WHERE assignee_id = a.id AND status = 'todo') as todo_count,
       (SELECT COUNT(*) FROM tasks WHERE assignee_id = a.id AND status = 'done') as done_count
     FROM agents a WHERE a.codename NOT IN ('CEO', 'PRODUCER')
     ORDER BY a.name
-  `).all() as Array<{ name: string; codename: string; todo_count: number; done_count: number }>;
+  `, []) as Array<{ name: string; codename: string; todo_count: number; done_count: number }>;
 
   const statusSummary = statusCounts.map(s => `${s.status}: ${s.count}`).join(', ');
   const recentWork = recentCompleted.map(t => `- ✅ "${t.title}" (${t.agent_name})`).join('\n');
@@ -94,10 +94,10 @@ Focus areas this cycle:
 
   // Create the task
   const taskId = uuid();
-  db.prepare(`
+  await db.run(`
     INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, created_at, updated_at)
-    VALUES (?, ?, ?, 'todo', 'high', ?, '["meta","planning","auto-produce"]', datetime('now'), datetime('now'))
-  `).run(taskId, `[Auto] Generate task batch — ${new Date().toISOString().split('T')[0]}`, description, producer.id);
+    VALUES ($1, $2, $3, 'todo', 'high', $4, '["meta","planning","auto-produce"]', NOW(), NOW())
+  `, [taskId, `[Auto] Generate task batch — ${new Date().toISOString().split('T')[0]}`, description, producer.id]);
 
   triggerQueueIfNeeded();
 
