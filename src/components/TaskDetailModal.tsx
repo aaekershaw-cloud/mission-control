@@ -62,6 +62,7 @@ export default function TaskDetailModal({
   const [reviewFeedback, setReviewFeedback] = useState('');
   const [reviewAction, setReviewAction] = useState<'reject' | 'revise' | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [taggedAgentIds, setTaggedAgentIds] = useState<string[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
@@ -111,7 +112,11 @@ export default function TaskDetailModal({
       const res = await fetch(`/api/tasks/${task.id}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, feedback: reviewFeedback.trim() || undefined }),
+        body: JSON.stringify({ 
+          action, 
+          feedback: reviewFeedback.trim() || undefined,
+          taggedAgents: taggedAgentIds.length > 0 ? taggedAgentIds : undefined,
+        }),
       });
       if (res.ok) {
         // Trigger board data refresh (onSave calls fetchTasks + closes modal)
@@ -377,13 +382,60 @@ export default function TaskDetailModal({
                   {reviewResult.agent_avatar} {reviewResult.agent_name} · {reviewResult.tokens_used} tokens · {(reviewResult.duration_ms / 1000).toFixed(1)}s
                 </div>
 
-                {/* Feedback input — shown when reject/revise selected */}
+                {/* Feedback input + agent tagging — shown when reject/revise selected */}
                 {reviewAction && (
-                  <div>
+                  <div className="space-y-3">
+                    {/* Agent tagging — for revise mode */}
+                    {reviewAction === 'revise' && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Tag agents to help with this revision:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {agents.filter(a => a.id !== 'system').map(agent => {
+                            const isTagged = taggedAgentIds.includes(agent.id);
+                            return (
+                              <button
+                                key={agent.id}
+                                onClick={() => {
+                                  setTaggedAgentIds(prev => 
+                                    prev.includes(agent.id) ? prev.filter(id => id !== agent.id) : [...prev, agent.id]
+                                  );
+                                  // Insert @mention into feedback
+                                  const mention = `@${agent.codename || agent.name}`;
+                                  if (!reviewFeedback.includes(mention)) {
+                                    setReviewFeedback(prev => prev + (prev ? ' ' : '') + mention + ' ');
+                                  }
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                                  isTagged
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 ring-1 ring-amber-500/20'
+                                    : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10 hover:text-slate-300'
+                                }`}
+                              >
+                                {agent.avatar || '🤖'} {agent.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {taggedAgentIds.length > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-slate-500">
+                            <span>Tagged:</span>
+                            {taggedAgentIds.map(id => {
+                              const agent = agents.find(a => a.id === id);
+                              return agent ? (
+                                <span key={id} className="inline-flex items-center gap-0.5 bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded">
+                                  {agent.avatar} {agent.name}
+                                  <button onClick={() => setTaggedAgentIds(prev => prev.filter(a => a !== id))} className="ml-0.5 text-amber-400/50 hover:text-amber-400">×</button>
+                                </span>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <textarea
                       value={reviewFeedback}
                       onChange={(e) => setReviewFeedback(e.target.value)}
-                      placeholder={reviewAction === 'reject' ? 'What needs to change?...' : 'What should be revised?...'}
+                      placeholder={reviewAction === 'reject' ? 'What needs to change?...' : 'What should be revised? (click agents above to @tag)...'}
                       rows={3}
                       autoFocus
                       className="w-full glass-sm px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none resize-none border-amber-500/30 focus:border-amber-500/50 transition-colors"
@@ -437,7 +489,7 @@ export default function TaskDetailModal({
                         {reviewAction === 'reject' ? <><XCircle size={14} /> Submit Rejection</> : <><RotateCcw size={14} /> Submit Revision</>}
                       </button>
                       <button
-                        onClick={() => { setReviewAction(null); setReviewFeedback(''); }}
+                        onClick={() => { setReviewAction(null); setReviewFeedback(''); setTaggedAgentIds([]); }}
                         className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-all"
                       >
                         Cancel

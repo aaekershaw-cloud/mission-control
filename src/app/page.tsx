@@ -59,10 +59,10 @@ export default function MissionControl() {
         analyticsRes.json(),
       ]);
 
-      setAgents(agentsData);
-      setTasks(tasksData);
-      setMessages(messagesData);
-      setSquads(squadsData);
+      setAgents(agentsData || []);
+      setTasks(tasksData || []);
+      setMessages(messagesData || []);
+      setSquads(squadsData || []);
       setAnalytics(analyticsData);
     } catch (error) {
       console.error('Failed to fetch data:', error);
