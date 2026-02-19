@@ -6,6 +6,13 @@ const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'mission-control
 
 let db: Database.Database | null = null;
 
+export function resetDb() {
+  if (db) {
+    try { db.close(); } catch { /* ignore */ }
+    db = null as unknown as Database.Database;
+  }
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     db = new Database(DB_PATH);

@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFileSync } from 'fs';
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-// Next.js 16 route segment config for large body
-export const maxDuration = 30;
+import { resetDb } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-upload-secret');
@@ -18,6 +10,10 @@ export async function POST(req: NextRequest) {
   
   const data = await req.arrayBuffer();
   const dbPath = process.env.DB_PATH || './mission-control.db';
+  
+  // Close existing connection before writing
+  resetDb();
+  
   writeFileSync(dbPath, Buffer.from(data));
   
   return NextResponse.json({ ok: true, size: data.byteLength, path: dbPath });
