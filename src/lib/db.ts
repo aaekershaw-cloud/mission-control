@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 
 // Lazy connection — avoids crash when DATABASE_URL is missing at build time
 let _sql: ReturnType<typeof postgres> | null = null;
-function getSql() {
+function getSql(): ReturnType<typeof postgres> {
   if (!_sql) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error('DATABASE_URL environment variable is required');
@@ -11,15 +11,10 @@ function getSql() {
   }
   return _sql;
 }
-// Keep backward compat for any direct `sql` references
-const sql = new Proxy({} as ReturnType<typeof postgres>, {
-  get(_, prop) { return (getSql() as any)[prop]; },
-  apply(_, thisArg, args) { return (getSql() as any)(...args); },
-});
 
 // Database query helpers
 export class Database {
-  private sql = sql;
+  private get sql() { return getSql(); }
 
   // Generic query method
   async query<T = any>(query: string, params: any[] = []): Promise<T[]> {
