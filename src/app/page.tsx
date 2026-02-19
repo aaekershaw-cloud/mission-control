@@ -378,7 +378,7 @@ export default function MissionControl() {
                   <div className="glass p-6">
                     <h3 className="text-lg font-semibold mb-4">💰 Cost by Day (Last 7 Days)</h3>
                     <div className="space-y-2">
-                      {((analytics as Record<string, unknown>).costByDay as Array<{ day: string; cost: number; tokens: number; tasks: number }> || []).map((d) => (
+                      {((analytics as unknown as Record<string, unknown>).costByDay as Array<{ day: string; cost: number; tokens: number; tasks: number }> || []).map((d) => (
                         <div key={d.day} className="flex items-center gap-3">
                           <span className="text-xs text-slate-500 w-20 font-mono">{d.day.slice(5)}</span>
                           <div className="flex-1 h-2 rounded-full bg-[#0a1128]">
@@ -389,7 +389,7 @@ export default function MissionControl() {
                           <span className="text-xs text-slate-500 w-14 text-right">{d.tasks} tasks</span>
                         </div>
                       ))}
-                      {!((analytics as Record<string, unknown>).costByDay as unknown[])?.length && (
+                      {!((analytics as unknown as Record<string, unknown>).costByDay as unknown[])?.length && (
                         <p className="text-sm text-slate-500">No cost data yet. Run some tasks!</p>
                       )}
                     </div>
@@ -399,7 +399,7 @@ export default function MissionControl() {
                   <div className="glass p-6">
                     <h3 className="text-lg font-semibold mb-4">⚡ Recent Task Completions</h3>
                     <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {((analytics as Record<string, unknown>).recentCompletions as Array<{ id: string; taskTitle: string; agentName: string; agentAvatar: string; tokensUsed: number; costUsd: number; durationMs: number; status: string; createdAt: string }> || []).slice(0, 15).map((r) => (
+                      {((analytics as unknown as Record<string, unknown>).recentCompletions as Array<{ id: string; taskTitle: string; agentName: string; agentAvatar: string; tokensUsed: number; costUsd: number; durationMs: number; status: string; createdAt: string }> || []).slice(0, 15).map((r) => (
                         <div key={r.id} className="flex items-center gap-2 text-xs">
                           <span>{r.agentAvatar}</span>
                           <span className="flex-1 truncate text-slate-300">{r.taskTitle}</span>
@@ -409,7 +409,7 @@ export default function MissionControl() {
                           <span className="text-slate-500">{(r.durationMs / 1000).toFixed(1)}s</span>
                         </div>
                       ))}
-                      {!((analytics as Record<string, unknown>).recentCompletions as unknown[])?.length && (
+                      {!((analytics as unknown as Record<string, unknown>).recentCompletions as unknown[])?.length && (
                         <p className="text-sm text-slate-500">No completions yet.</p>
                       )}
                     </div>

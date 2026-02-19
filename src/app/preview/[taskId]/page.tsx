@@ -133,10 +133,10 @@ function LickCard({ lick, index }: { lick: Record<string, unknown>; index: numbe
               <h3 className="text-base font-semibold text-slate-100">{lick.lick_name as string || lick.name as string || `Lick ${index + 1}`}</h3>
             </div>
             <div className="flex items-center gap-3 mt-1.5">
-              {lick.scale && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">{lick.scale as string}</span>}
-              {lick.key && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">Key: {lick.key as string}</span>}
-              {lick.difficulty && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">{lick.difficulty as string}</span>}
-              {lick.tempo && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/20">♩ {lick.tempo as string} BPM</span>}
+              {lick.scale ? <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">{String(lick.scale)}</span> : null}
+              {lick.key ? <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">Key: {String(lick.key)}</span> : null}
+              {lick.difficulty ? <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">{String(lick.difficulty)}</span> : null}
+              {lick.tempo ? <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/20">♩ {String(lick.tempo)} BPM</span> : null}
             </div>
           </div>
           <Music className="text-amber-400/40" size={24} />
