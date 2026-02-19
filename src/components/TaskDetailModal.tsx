@@ -377,71 +377,73 @@ export default function TaskDetailModal({
                   {reviewResult.agent_avatar} {reviewResult.agent_name} · {reviewResult.tokens_used} tokens · {(reviewResult.duration_ms / 1000).toFixed(1)}s
                 </div>
 
-                {/* Feedback input — always visible */}
-                <div>
-                  <textarea
-                    value={reviewFeedback}
-                    onChange={(e) => setReviewFeedback(e.target.value)}
-                    placeholder="Feedback for reject/revise (optional for approve)..."
-                    rows={3}
-                    className="w-full glass-sm px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none resize-none focus:border-amber-500/30 transition-colors"
-                  />
-                </div>
+                {/* Feedback input — shown when reject/revise selected */}
+                {reviewAction && (
+                  <div>
+                    <textarea
+                      value={reviewFeedback}
+                      onChange={(e) => setReviewFeedback(e.target.value)}
+                      placeholder={reviewAction === 'reject' ? 'What needs to change?...' : 'What should be revised?...'}
+                      rows={3}
+                      autoFocus
+                      className="w-full glass-sm px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none resize-none border-amber-500/30 focus:border-amber-500/50 transition-colors"
+                    />
+                  </div>
+                )}
 
                 {/* Review action buttons */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => handleReviewAction('approve')}
-                    disabled={reviewLoading}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 active:bg-emerald-500/35 transition-all disabled:opacity-50"
-                  >
-                    <CheckCircle size={14} />
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!reviewFeedback.trim()) {
-                        setReviewAction('revise');
-                        // Focus the textarea
-                        const ta = document.querySelector('textarea[placeholder*="Feedback"]') as HTMLTextAreaElement;
-                        if (ta) { ta.focus(); ta.placeholder = 'What should be revised? A new task will be created...'; }
-                        return;
-                      }
-                      handleReviewAction('revise');
-                    }}
-                    disabled={reviewLoading}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 active:scale-95 ${
-                      reviewAction === 'revise'
-                        ? 'text-blue-300 bg-blue-500/25 border border-blue-500/50 animate-pulse'
-                        : 'text-blue-300 bg-blue-500/15 border border-blue-500/30 hover:bg-blue-500/25'
-                    }`}
-                  >
-                    <RotateCcw size={14} />
-                    {reviewAction === 'revise' && !reviewFeedback.trim() ? 'Add feedback ↑' : 'Revise'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!reviewFeedback.trim()) {
-                        setReviewAction('reject');
-                        const ta = document.querySelector('textarea[placeholder*="Feedback"]') as HTMLTextAreaElement;
-                        if (ta) { ta.focus(); ta.placeholder = 'What needs to change? Agent will re-run with this feedback...'; }
-                        return;
-                      }
-                      handleReviewAction('reject');
-                    }}
-                    disabled={reviewLoading}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 active:scale-95 ${
-                      reviewAction === 'reject'
-                        ? 'text-red-300 bg-red-500/25 border border-red-500/50 animate-pulse'
-                        : 'text-red-300 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25'
-                    }`}
-                  >
-                    <XCircle size={14} />
-                    {reviewAction === 'reject' && !reviewFeedback.trim() ? 'Add feedback ↑' : 'Reject'}
-                  </button>
-                </div>
-                {reviewAction && !reviewFeedback.trim() && (
-                  <p className="text-xs text-amber-400">⚠ Type your feedback above, then tap {reviewAction === 'reject' ? 'Reject' : 'Revise'} again.</p>
+                {!reviewAction ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleReviewAction('approve')}
+                      disabled={reviewLoading}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 active:bg-emerald-500/35 transition-all disabled:opacity-50"
+                    >
+                      <CheckCircle size={14} />
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => setReviewAction('revise')}
+                      disabled={reviewLoading}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-300 bg-blue-500/15 border border-blue-500/30 hover:bg-blue-500/25 transition-all disabled:opacity-50"
+                    >
+                      <RotateCcw size={14} />
+                      Revise
+                    </button>
+                    <button
+                      onClick={() => setReviewAction('reject')}
+                      disabled={reviewLoading}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-red-300 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 transition-all disabled:opacity-50"
+                    >
+                      <XCircle size={14} />
+                      Reject
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-400">
+                      {reviewAction === 'reject' ? 'Why are you rejecting? Agent will re-run with this feedback.' : 'What should be revised? A new revision task will be created.'}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleReviewAction(reviewAction)}
+                        disabled={reviewLoading || !reviewFeedback.trim()}
+                        className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-30 ${
+                          reviewAction === 'reject'
+                            ? 'text-white bg-red-500 hover:bg-red-400 active:bg-red-600'
+                            : 'text-white bg-blue-500 hover:bg-blue-400 active:bg-blue-600'
+                        }`}
+                      >
+                        {reviewAction === 'reject' ? <><XCircle size={14} /> Submit Rejection</> : <><RotateCcw size={14} /> Submit Revision</>}
+                      </button>
+                      <button
+                        onClick={() => { setReviewAction(null); setReviewFeedback(''); }}
+                        className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
