@@ -12,6 +12,7 @@ import TaskCard from './TaskCard';
 interface TaskColumnProps {
   status: TaskStatus;
   tasks: Task[];
+  totalCount?: number;
   allTasks?: Task[];
   title: string;
   onAddTask?: (status: TaskStatus) => void;
@@ -27,7 +28,7 @@ const headerAccent: Record<TaskStatus, string> = {
   done: 'border-t-emerald-500',
 };
 
-export default function TaskColumn({ status, tasks, allTasks = [], title, onAddTask, onTaskClick, onTaskRun }: TaskColumnProps) {
+export default function TaskColumn({ status, tasks, totalCount, allTasks = [], title, onAddTask, onTaskClick, onTaskRun }: TaskColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const config = TASK_STATUS_CONFIG[status];
 
@@ -44,7 +45,7 @@ export default function TaskColumn({ status, tasks, allTasks = [], title, onAddT
           <span
             className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${config.bgColor} ${config.color}`}
           >
-            {tasks.length}
+            {totalCount ?? tasks.length}
           </span>
         </div>
       </div>

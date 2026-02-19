@@ -486,18 +486,26 @@ export default function TaskBoard() {
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          {columns.map((status) => (
-            <TaskColumn
-              key={status}
-              status={status}
-              title={TASK_STATUS_CONFIG[status].label}
-              tasks={filteredTasks.filter((t) => t.status === status)}
-              allTasks={tasks}
-              onAddTask={handleAddTask}
-              onTaskClick={handleTaskClick}
-              onTaskRun={handleTaskRun}
-            />
-          ))}
+          {columns.map((status) => {
+            let columnTasks = filteredTasks.filter((t) => t.status === status);
+            // Limit done column to last 20 to avoid performance issues
+            if (status === 'done' && columnTasks.length > 20) {
+              columnTasks = columnTasks.slice(0, 20);
+            }
+            return (
+              <TaskColumn
+                key={status}
+                status={status}
+                title={TASK_STATUS_CONFIG[status].label}
+                tasks={columnTasks}
+                totalCount={filteredTasks.filter((t) => t.status === status).length}
+                allTasks={tasks}
+                onAddTask={handleAddTask}
+                onTaskClick={handleTaskClick}
+                onTaskRun={handleTaskRun}
+              />
+            );
+          })}
 
           <DragOverlay>
             {activeTask ? <TaskCard task={activeTask} overlay /> : null}
