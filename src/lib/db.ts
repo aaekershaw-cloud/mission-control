@@ -1,18 +1,20 @@
 import postgres from 'postgres';
 import { v4 as uuid } from 'uuid';
 
-// Get DATABASE_URL from environment
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL environment variable is required');
+// Lazy connection — avoids crash when DATABASE_URL is missing at build time
+let _sql: ReturnType<typeof postgres> | null = null;
+function getSql() {
+  if (!_sql) {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error('DATABASE_URL environment variable is required');
+    _sql = postgres(url, { max: 20, idle_timeout: 20, max_lifetime: 60 * 30 });
+  }
+  return _sql;
 }
-
-// Create postgres connection
-const sql = postgres(DATABASE_URL, {
-  // Connection pool configuration
-  max: 20,
-  idle_timeout: 20,
-  max_lifetime: 60 * 30,
+// Keep backward compat for any direct `sql` references
+const sql = new Proxy({} as ReturnType<typeof postgres>, {
+  get(_, prop) { return (getSql() as any)[prop]; },
+  apply(_, thisArg, args) { return (getSql() as any)(...args); },
 });
 
 // Database query helpers
