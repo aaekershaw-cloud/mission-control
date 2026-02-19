@@ -455,35 +455,53 @@ Structure each caption as a separate section divided by ---. Include hashtags at
     cost: costUsd 
   });
 
-  // Auto-create content pipeline item for social media tasks only
+  // Auto-create content pipeline items for social media tasks
   const socialTags = ['social', 'instagram', 'twitter', 'tiktok', 'youtube', 'caption', 'reel', 'post'];
   const taskTags = JSON.parse(task.tags || '[]');
   const isSocial = taskTags.some(t => socialTags.some(st => t.toLowerCase().includes(st)));
   if (isSocial) {
-    const platform = taskTags.find(t => ['instagram','twitter','tiktok','youtube'].some(p => t.toLowerCase().includes(p))) || 'x';
-    // Extract image URL from agent response (could be in JSON or tool output)
-    let thumbnailUrl = null;
+    let postsCreated = 0;
+
+    // Try to parse structured multi-post JSON array from response
     try {
-      const jsonMatch = finalResponse.match(/"image_url"\s*:\s*"(https?:\/\/[^"]+)"/);
-      if (jsonMatch) thumbnailUrl = jsonMatch[1];
-      if (!thumbnailUrl) {
-        // Check tool usage summary for generate_image results
-        const toolImageMatch = toolUsageSummary.join(' ').match(/generate_image/);
-        if (toolImageMatch) {
-          // Look for replicate URL pattern in response
-          const replicateMatch = finalResponse.match(/(https:\/\/replicate\.delivery\/[^\s"']+)/);
-          if (replicateMatch) thumbnailUrl = replicateMatch[1];
+      // Look for JSON array pattern: [{"platform": ..., "caption": ...}, ...]
+      const arrayMatch = finalResponse.match(/\[\s*\{[\s\S]*"(?:platform|caption)"[\s\S]*\}\s*\]/);
+      if (arrayMatch) {
+        const posts = JSON.parse(arrayMatch[0]);
+        if (Array.isArray(posts) && posts.length > 0 && posts[0].caption) {
+          for (const post of posts) {
+            const platform = (post.platform || 'x').toLowerCase().replace('twitter', 'x');
+            const imageUrl = post.image_url || null;
+            const title = post.title || `${task.title} — ${platform}`;
+            await db.run(
+              'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, thumbnail_url, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())',
+              [uuid(), title, post.caption.substring(0, 5000), 'review', platform, task.assignee_id, imageUrl, JSON.stringify({ taskId: task.id, autoCreated: true })]
+            );
+            postsCreated++;
+          }
+          await logActivity('content', `${postsCreated} social posts created from: ${task.title}`, `Split into individual pipeline items`, task.assignee_id, { taskId: task.id, count: postsCreated });
         }
       }
     } catch {}
-    await db.run(
-      'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, thumbnail_url, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())',
-      [uuid(), task.title, finalResponse.substring(0, 5000), 'review', platform, task.assignee_id, thumbnailUrl, JSON.stringify({ taskId: task.id, autoCreated: true })]
-    );
-    await logActivity('content', `Content created: ${task.title}`, `Auto-added to pipeline as "${platform}" content`, task.assignee_id, { 
-      taskId: task.id, 
-      stage: 'review' 
-    });
+
+    // Fallback: single pipeline item if structured parse failed
+    if (postsCreated === 0) {
+      const platform = taskTags.find(t => ['instagram','twitter','tiktok','youtube','x'].some(p => t.toLowerCase().includes(p)))?.toLowerCase().replace('twitter', 'x') || 'x';
+      let thumbnailUrl = null;
+      try {
+        const jsonMatch = finalResponse.match(/"image_url"\s*:\s*"(https?:\/\/[^"]+)"/);
+        if (jsonMatch) thumbnailUrl = jsonMatch[1];
+        if (!thumbnailUrl) {
+          const replicateMatch = finalResponse.match(/(https:\/\/replicate\.delivery\/[^\s"']+)/);
+          if (replicateMatch) thumbnailUrl = replicateMatch[1];
+        }
+      } catch {}
+      await db.run(
+        'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, thumbnail_url, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())',
+        [uuid(), task.title, finalResponse.substring(0, 5000), 'review', platform, task.assignee_id, thumbnailUrl, JSON.stringify({ taskId: task.id, autoCreated: true })]
+      );
+      await logActivity('content', `Content created: ${task.title}`, `Auto-added to pipeline as "${platform}" content`, task.assignee_id, { taskId: task.id, stage: 'review' });
+    }
   }
 
   // Log system message

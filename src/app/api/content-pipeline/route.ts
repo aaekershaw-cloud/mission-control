@@ -167,8 +167,8 @@ export async function PUT(request: NextRequest) {
       });
 
       // Auto-trigger social posting if stage changed to 'published' and platform is social
-      if (newStage === 'published' && ['twitter', 'instagram', 'tiktok'].includes(currentItem.platform)) {
-        const platformMap: Record<string, string> = { twitter: 'x', instagram: 'instagram', tiktok: 'tiktok' };
+      if (newStage === 'published' && ['x', 'twitter', 'instagram', 'tiktok'].includes(currentItem.platform)) {
+        const platformMap: Record<string, string> = { twitter: 'x', x: 'x', instagram: 'instagram', tiktok: 'tiktok' };
         try {
           const response = await fetch(`http://localhost:${process.env.PORT || 3003}/api/social`, {
             method: 'POST',

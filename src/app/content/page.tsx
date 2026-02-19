@@ -234,8 +234,8 @@ export default function ContentPipelinePage() {
       )}
 
       {/* Kanban Board */}
-      <div className="flex-1 overflow-x-auto">
-        <div className="flex gap-4 h-full min-w-max">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="flex gap-4 h-full min-w-max pb-4">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCorners}
@@ -246,7 +246,7 @@ export default function ContentPipelinePage() {
             {STAGES.map((stage) => {
               const stageContent = getContentByStage(stage.id);
               return (
-                <div key={stage.id} className="w-80 flex flex-col">
+                <div key={stage.id} className="w-80 flex flex-col min-h-0">
                   {/* Column Header */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -271,7 +271,7 @@ export default function ContentPipelinePage() {
                   {/* Drop Zone */}
                   <div
                     id={stage.id}
-                    className="flex-1 min-h-[500px] bg-white/5 border border-white/10 rounded-xl p-3 space-y-3"
+                    className="flex-1 min-h-[200px] bg-white/5 border border-white/10 rounded-xl p-3 space-y-3 overflow-y-auto"
                   >
                     {stageContent.map((item) => (
                       <ContentCard
@@ -541,7 +541,6 @@ function CreateContentModal({
   );
 }
 
-// Content Detail Modal (placeholder - similar structure to create modal)
 function ContentDetailModal({
   content,
   agents,
@@ -555,62 +554,194 @@ function ContentDetailModal({
   onClose: () => void;
   onUpdate: () => void;
 }) {
+  const [editedBody, setEditedBody] = useState(content.body || '');
+  const [editedPlatform, setEditedPlatform] = useState(content.platform);
+  const [saving, setSaving] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState('');
+  const isEdited = editedBody !== (content.body || '') || editedPlatform !== content.platform;
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [onClose]);
 
+  const updateContent = async (updates: Record<string, any>) => {
+    await fetch('/api/content-pipeline', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: content.id, ...updates }),
+    });
+    onUpdate();
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await updateContent({ body: editedBody, platform: editedPlatform });
+    setSaving(false);
+  };
+
+  const handleApprove = async () => {
+    setActionInProgress('approve');
+    // Save edits first if any
+    if (isEdited) {
+      await updateContent({ body: editedBody, platform: editedPlatform, stage: 'scheduled' });
+    } else {
+      await updateContent({ stage: 'scheduled' });
+    }
+    setActionInProgress('');
+    onClose();
+  };
+
+  const handlePublish = async () => {
+    setActionInProgress('publish');
+    if (isEdited) {
+      await updateContent({ body: editedBody, platform: editedPlatform, stage: 'published' });
+    } else {
+      await updateContent({ stage: 'published' });
+    }
+    setActionInProgress('');
+    onClose();
+  };
+
+  const handleReject = async () => {
+    setActionInProgress('reject');
+    await fetch(`/api/content-pipeline?id=${content.id}`, { method: 'DELETE' });
+    onUpdate();
+    setActionInProgress('');
+    onClose();
+  };
+
+  const handleSendBack = async () => {
+    setActionInProgress('revise');
+    await updateContent({ stage: 'writing' });
+    setActionInProgress('');
+    onClose();
+  };
+
+  // Calculate textarea rows
+  const lines = editedBody.split('\n');
+  const estimatedRows = lines.reduce((sum, line) => sum + Math.max(1, Math.ceil((line.length || 1) / 60)), 0);
+  const rows = Math.min(Math.max(estimatedRows, 4), 20);
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-slate-900 border border-white/10 rounded-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-semibold text-white">{content.title}</h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
-          >
+      <div className="bg-slate-900 border border-white/10 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white flex-1 mr-4">{content.title}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10">
             <X size={18} />
           </button>
         </div>
+
+        {/* Platform selector */}
+        <div className="flex gap-2 mb-4">
+          {platforms.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setEditedPlatform(p.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                editedPlatform === p.id
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                  : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white'
+              }`}
+            >
+              {p.icon} {p.label}
+            </button>
+          ))}
+        </div>
         
-        <div className="space-y-4">
-          {content.thumbnail_url && (
-            <div>
-              <h4 className="font-medium text-white mb-2">Image</h4>
-              <img src={content.thumbnail_url} alt="" className="w-full max-w-md rounded-lg border border-white/10" />
-            </div>
+        {/* Image */}
+        {content.thumbnail_url && (
+          <div className="mb-4">
+            <img src={content.thumbnail_url} alt="" className="w-full max-w-sm rounded-lg border border-white/10" />
+          </div>
+        )}
+
+        {/* Editable caption */}
+        <div className="mb-4">
+          <label className="text-sm font-medium text-slate-400 mb-1 block">Caption</label>
+          <textarea
+            value={editedBody}
+            onChange={e => setEditedBody(e.target.value)}
+            rows={rows}
+            className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm resize-y focus:outline-none focus:border-amber-500/50"
+            placeholder="Write your caption..."
+          />
+          {editedPlatform === 'x' && (
+            <p className={`text-xs mt-1 ${editedBody.length > 280 ? 'text-red-400' : 'text-slate-500'}`}>
+              {editedBody.length}/280 characters
+            </p>
           )}
-          
-          <div>
-            <h4 className="font-medium text-white mb-2">Caption</h4>
-            <div className="p-4 bg-white/5 rounded-lg">
-              <pre className="whitespace-pre-wrap text-slate-300 text-sm">
-                {content.body || 'No content yet'}
-              </pre>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-slate-400">Platform:</span>
-              <span className="ml-2 text-white">
-                {platforms.find(p => p.id === content.platform)?.label || content.platform}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400">Stage:</span>
-              <span className="ml-2 text-white">{content.stage}</span>
-            </div>
-            {content.publish_date && (
-              <div>
-                <span className="text-slate-400">Publish Date:</span>
-                <span className="ml-2 text-white">
-                  {format(new Date(content.publish_date), 'MMM d, yyyy')}
-                </span>
-              </div>
-            )}
-          </div>
+        </div>
+
+        {/* Meta info */}
+        <div className="flex items-center gap-4 mb-6 text-xs text-slate-500">
+          <span>Stage: <span className="text-slate-300">{content.stage}</span></span>
+          {content.agent_name && <span>By: <span className="text-slate-300">{content.agent_avatar} {content.agent_name}</span></span>}
+          <span>{format(new Date(content.created_at), 'MMM d, yyyy')}</span>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-3 pt-4 border-t border-white/10">
+          {content.stage === 'review' && (
+            <>
+              <button
+                onClick={handleApprove}
+                disabled={!!actionInProgress}
+                className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-500 text-white font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                {actionInProgress === 'approve' ? '...' : '✅ Approve → Schedule'}
+              </button>
+              <button
+                onClick={handlePublish}
+                disabled={!!actionInProgress}
+                className="flex-1 px-4 py-3 bg-amber-600 hover:bg-amber-500 text-white font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                {actionInProgress === 'publish' ? '...' : '🚀 Approve & Post Now'}
+              </button>
+              <button
+                onClick={handleSendBack}
+                disabled={!!actionInProgress}
+                className="px-4 py-3 bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                {actionInProgress === 'revise' ? '...' : '✏️ Revise'}
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={!!actionInProgress}
+                className="px-4 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                {actionInProgress === 'reject' ? '...' : '🗑️'}
+              </button>
+            </>
+          )}
+          {content.stage === 'scheduled' && (
+            <button
+              onClick={handlePublish}
+              disabled={!!actionInProgress}
+              className="flex-1 px-4 py-3 bg-amber-600 hover:bg-amber-500 text-white font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+            >
+              {actionInProgress === 'publish' ? 'Posting...' : '🚀 Post Now'}
+            </button>
+          )}
+          {content.stage !== 'review' && content.stage !== 'scheduled' && content.stage !== 'published' && (
+            <button
+              onClick={() => updateContent({ stage: 'review' })}
+              className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-all text-sm"
+            >
+              Move to Review →
+            </button>
+          )}
+          {isEdited && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+            >
+              {saving ? 'Saving...' : '💾 Save Edits'}
+            </button>
+          )}
         </div>
       </div>
     </div>
