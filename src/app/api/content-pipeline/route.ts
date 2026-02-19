@@ -174,7 +174,13 @@ export async function PUT(request: NextRequest) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              text: currentItem.body.substring(0, 2000),
+              text: currentItem.body
+                .replace(/^(\s*#{1,4}\s.*\n+|\s*\*\*[^*]+\*\*\s*\n+|\s*---\s*\n+)+/, '') // strip leading headers
+                .replace(/\*\*(.+?)\*\*/g, '$1') // strip bold markdown
+                .replace(/\*(.+?)\*/g, '$1') // strip italic markdown
+                .replace(/^#+\s*/gm, '') // strip # headers
+                .trim()
+                .substring(0, 2000),
               platforms: [platformMap[currentItem.platform] || currentItem.platform],
               postNow: true,
             }),
