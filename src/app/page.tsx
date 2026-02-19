@@ -39,6 +39,7 @@ export default function MissionControl() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [agentFormOpen, setAgentFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -323,38 +324,98 @@ export default function MissionControl() {
           <div className="space-y-6 h-full overflow-y-auto pr-2 pb-6">
             <MetricsPanel metrics={metrics} />
             {analytics && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="glass p-6">
-                  <h3 className="text-lg font-semibold mb-4">Tasks by Status</h3>
-                  <div className="space-y-3">
-                    {Object.entries(analytics.tasksByStatus).map(([status, count]) => (
-                      <div key={status} className="flex items-center gap-3">
-                        <span className="text-sm text-[#8892a8] w-24 capitalize">{status.replace('_', ' ')}</span>
-                        <div className="flex-1 h-2 rounded-full bg-[#0a1128]">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#06d6a0] to-[#4cc9f0]"
-                            style={{ width: `${analytics.totalTasks > 0 ? (count / analytics.totalTasks) * 100 : 0}%` }}
-                          />
+              <>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Tasks by Status */}
+                  <div className="glass p-6">
+                    <h3 className="text-lg font-semibold mb-4">Tasks by Status</h3>
+                    <div className="space-y-3">
+                      {Object.entries(analytics.tasksByStatus).map(([status, count]) => {
+                        const colors: Record<string, string> = {
+                          backlog: 'from-slate-500 to-slate-400',
+                          todo: 'from-blue-500 to-blue-400',
+                          in_progress: 'from-amber-500 to-amber-400',
+                          review: 'from-purple-500 to-purple-400',
+                          done: 'from-emerald-500 to-emerald-400',
+                        };
+                        return (
+                          <div key={status} className="flex items-center gap-3">
+                            <span className="text-sm text-[#8892a8] w-24 capitalize">{status.replace('_', ' ')}</span>
+                            <div className="flex-1 h-3 rounded-full bg-[#0a1128]">
+                              <div className={`h-full rounded-full bg-gradient-to-r ${colors[status] || 'from-slate-500 to-slate-400'}`}
+                                style={{ width: `${analytics.totalTasks > 0 ? (count / analytics.totalTasks) * 100 : 0}%` }} />
+                            </div>
+                            <span className="text-sm font-bold w-10 text-right">{count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Agent Performance */}
+                  <div className="glass p-6">
+                    <h3 className="text-lg font-semibold mb-4">Agent Performance</h3>
+                    <div className="space-y-3">
+                      {(analytics.agentPerformance as Array<{ agentId: string; name: string; avatar: string; tasksCompleted: number; tokensUsed: number; costUsd: number; avgDurationMs?: number; successfulResults?: number; errorResults?: number }>).slice(0, 10).map((agent) => (
+                        <div key={agent.agentId} className="flex items-center gap-3">
+                          <span className="text-xl">{agent.avatar}</span>
+                          <span className="text-sm flex-1 truncate">{agent.name}</span>
+                          <span className="text-sm text-emerald-400 font-medium">{agent.tasksCompleted}</span>
+                          <span className="text-xs text-slate-500">{(agent.tokensUsed / 1000).toFixed(0)}k</span>
+                          <span className="text-xs text-pink-400">${agent.costUsd.toFixed(4)}</span>
+                          {agent.avgDurationMs ? (
+                            <span className="text-xs text-slate-500">{(agent.avgDurationMs / 1000).toFixed(1)}s</span>
+                          ) : null}
                         </div>
-                        <span className="text-sm font-medium w-8 text-right">{count}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div className="glass p-6">
-                  <h3 className="text-lg font-semibold mb-4">Agent Performance</h3>
-                  <div className="space-y-3">
-                    {analytics.agentPerformance.slice(0, 8).map((agent) => (
-                      <div key={agent.agentId} className="flex items-center gap-3">
-                        <span className="text-xl">{agent.avatar}</span>
-                        <span className="text-sm flex-1">{agent.name}</span>
-                        <span className="text-sm text-[#06d6a0] font-medium">{agent.tasksCompleted} tasks</span>
-                        <span className="text-sm text-[#8892a8]">{(agent.tokensUsed / 1000).toFixed(0)}k tokens</span>
-                      </div>
-                    ))}
+
+                {/* Cost tracking and queue history */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Cost by Day */}
+                  <div className="glass p-6">
+                    <h3 className="text-lg font-semibold mb-4">💰 Cost by Day (Last 7 Days)</h3>
+                    <div className="space-y-2">
+                      {((analytics as Record<string, unknown>).costByDay as Array<{ day: string; cost: number; tokens: number; tasks: number }> || []).map((d) => (
+                        <div key={d.day} className="flex items-center gap-3">
+                          <span className="text-xs text-slate-500 w-20 font-mono">{d.day.slice(5)}</span>
+                          <div className="flex-1 h-2 rounded-full bg-[#0a1128]">
+                            <div className="h-full rounded-full bg-gradient-to-r from-pink-500 to-rose-400"
+                              style={{ width: `${Math.min(100, d.cost * 5000)}%` }} />
+                          </div>
+                          <span className="text-xs text-pink-400 font-medium w-16 text-right">${d.cost.toFixed(4)}</span>
+                          <span className="text-xs text-slate-500 w-14 text-right">{d.tasks} tasks</span>
+                        </div>
+                      ))}
+                      {!((analytics as Record<string, unknown>).costByDay as unknown[])?.length && (
+                        <p className="text-sm text-slate-500">No cost data yet. Run some tasks!</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Recent Completions */}
+                  <div className="glass p-6">
+                    <h3 className="text-lg font-semibold mb-4">⚡ Recent Task Completions</h3>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {((analytics as Record<string, unknown>).recentCompletions as Array<{ id: string; taskTitle: string; agentName: string; agentAvatar: string; tokensUsed: number; costUsd: number; durationMs: number; status: string; createdAt: string }> || []).slice(0, 15).map((r) => (
+                        <div key={r.id} className="flex items-center gap-2 text-xs">
+                          <span>{r.agentAvatar}</span>
+                          <span className="flex-1 truncate text-slate-300">{r.taskTitle}</span>
+                          <span className={r.status === 'completed' ? 'text-emerald-400' : 'text-red-400'}>
+                            {r.status === 'completed' ? '✓' : '✗'}
+                          </span>
+                          <span className="text-slate-500">{(r.durationMs / 1000).toFixed(1)}s</span>
+                        </div>
+                      ))}
+                      {!((analytics as Record<string, unknown>).recentCompletions as unknown[])?.length && (
+                        <p className="text-sm text-slate-500">No completions yet.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         );
@@ -388,6 +449,8 @@ export default function MissionControl() {
         onTabChange={(tab) => setActiveTab(tab as TabId)}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(prev => !prev)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -411,6 +474,7 @@ export default function MissionControl() {
               console.error('Failed to mark message as read:', error);
             }
           }}
+          onMenuToggle={() => setMobileMenuOpen(prev => !prev)}
           onMarkAllRead={async () => {
             try {
               const unread = messages.filter(m => !m.read);
@@ -429,7 +493,7 @@ export default function MissionControl() {
             }
           }}
         />
-        <main className="flex-1 p-6 min-h-0">
+        <main className="flex-1 p-3 md:p-6 min-h-0">
           {renderContent()}
         </main>
       </div>

@@ -42,7 +42,7 @@ export default function NotificationPanel({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="absolute right-0 top-full mt-2 w-96 glass gradient-border rounded-2xl overflow-hidden z-50 shadow-2xl shadow-black/50"
+            className="absolute right-0 top-full mt-2 w-[calc(100vw-1.5rem)] sm:w-96 max-w-96 glass gradient-border rounded-2xl overflow-hidden z-50 shadow-2xl shadow-black/50 -right-2 sm:right-0"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">

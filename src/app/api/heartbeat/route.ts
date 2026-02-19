@@ -82,6 +82,20 @@ export async function POST(request: NextRequest) {
       "SELECT id, title, status, priority FROM tasks WHERE assignee_id = ? AND status IN ('todo', 'in_progress') ORDER BY priority ASC"
     ).all(agentId) as Record<string, unknown>[];
 
+    // Fetch unread messages for this agent
+    const unreadMessages = db.prepare(`
+      SELECT m.*, a.name AS from_agent_name, a.avatar AS from_agent_avatar
+      FROM messages m
+      LEFT JOIN agents a ON m.from_agent_id = a.id
+      WHERE (m.to_agent_id = ? OR m.to_agent_id IS NULL) AND m.read = 0
+      ORDER BY m.created_at DESC LIMIT 10
+    `).all(agentId) as Record<string, unknown>[];
+
+    // Mark them as read
+    db.prepare(
+      `UPDATE messages SET read = 1 WHERE (to_agent_id = ? OR to_agent_id IS NULL) AND read = 0`
+    ).run(agentId);
+
     return NextResponse.json({
       received: true,
       timestamp: now,
@@ -90,6 +104,16 @@ export async function POST(request: NextRequest) {
         title: t.title,
         status: t.status,
         priority: t.priority,
+      })),
+      unreadMessages: unreadMessages.map((m) => ({
+        id: m.id,
+        fromAgentId: m.from_agent_id,
+        fromAgentName: m.from_agent_name ?? null,
+        fromAgentAvatar: m.from_agent_avatar ?? null,
+        toAgentId: m.to_agent_id,
+        content: m.content,
+        type: m.type,
+        createdAt: m.created_at,
       })),
     });
   } catch (error) {

@@ -1,7 +1,7 @@
 export type AgentStatus = 'online' | 'busy' | 'idle' | 'offline' | 'error';
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
-export type ProviderType = 'kimi-k2.5' | 'claude' | 'openai' | 'custom';
+export type ProviderType = 'kimi-k2.5' | 'claude' | 'openai' | 'openrouter' | 'custom';
 export type MessageType = 'message' | 'mention' | 'system' | 'error' | 'heartbeat';
 
 export interface Agent {
@@ -41,6 +41,10 @@ export interface Task {
   completedAt: string | null;
   estimatedTokens: number;
   actualTokens: number;
+  /** Comma-separated list of task IDs this task depends on */
+  dependsOn?: string;
+  /** Accumulated context from parent tasks (set automatically) */
+  chainContext?: string;
 }
 
 export interface Message {

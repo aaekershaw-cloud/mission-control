@@ -2,8 +2,7 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { motion } from 'framer-motion';
-import { GripVertical, Clock, Play } from 'lucide-react';
+import { GripVertical, Clock, Play, Link2, Lock } from 'lucide-react';
 import { Task, PRIORITY_CONFIG } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -12,6 +11,7 @@ interface TaskCardProps {
   overlay?: boolean;
   onClick?: (task: Task) => void;
   onRun?: (task: Task) => void;
+  allTasks?: Task[];
 }
 
 const priorityDotColors: Record<string, string> = {
@@ -21,7 +21,7 @@ const priorityDotColors: Record<string, string> = {
   low: 'bg-blue-400',
 };
 
-export default function TaskCard({ task, overlay = false, onClick, onRun }: TaskCardProps) {
+export default function TaskCard({ task, overlay = false, onClick, onRun, allTasks = [] }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -45,6 +45,15 @@ export default function TaskCard({ task, overlay = false, onClick, onRun }: Task
   const timeAgo = task.createdAt
     ? formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })
     : '';
+
+  // Dependency status
+  const depIds = (task.dependsOn || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const hasDeps = depIds.length > 0;
+  const isBlocked = hasDeps && depIds.some((depId) => {
+    const dep = allTasks.find((t) => t.id === depId);
+    return !dep || (dep.status !== 'done' && dep.status !== 'review');
+  });
+  const isReady = hasDeps && !isBlocked;
 
   return (
     <div
@@ -83,9 +92,9 @@ export default function TaskCard({ task, overlay = false, onClick, onRun }: Task
           </div>
 
           {/* Tags */}
-          {task.tags.length > 0 && (
+          {(Array.isArray(task.tags) ? task.tags : []).length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
-              {task.tags.map((tag) => (
+              {(Array.isArray(task.tags) ? task.tags : []).map((tag) => (
                 <span
                   key={tag}
                   className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-700/50 text-slate-400"
@@ -93,6 +102,23 @@ export default function TaskCard({ task, overlay = false, onClick, onRun }: Task
                   {tag}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Dependency badge */}
+          {hasDeps && (
+            <div className="flex items-center gap-1 mb-1.5">
+              {isBlocked ? (
+                <span className="flex items-center gap-0.5 text-[10px] text-red-400/80 bg-red-500/10 rounded px-1.5 py-0.5">
+                  <Lock size={8} />
+                  Blocked
+                </span>
+              ) : (
+                <span className="flex items-center gap-0.5 text-[10px] text-emerald-400/80 bg-emerald-500/10 rounded px-1.5 py-0.5">
+                  <Link2 size={8} />
+                  {isReady ? 'Ready' : 'Chained'}
+                </span>
+              )}
             </div>
           )}
 

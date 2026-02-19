@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { v4 as uuid } from 'uuid';
 
 export async function GET(request: NextRequest) {
@@ -47,12 +48,14 @@ export async function GET(request: NextRequest) {
       assigneeName: row.assignee_name ?? null,
       assigneeAvatar: row.assignee_avatar ?? null,
       squadId: row.squad_id,
-      tags: JSON.parse((row.tags as string) || '[]'),
+      tags: (() => { try { return JSON.parse((row.tags as string) || '[]'); } catch { return (row.tags as string || '').split(',').map((s: string) => s.trim()).filter(Boolean); } })(),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
       estimatedTokens: row.estimated_tokens,
       actualTokens: row.actual_tokens,
+      dependsOn: row.depends_on ?? '',
+      chainContext: row.chain_context ?? '',
     }));
 
     return NextResponse.json(tasks);
@@ -79,6 +82,7 @@ export async function POST(request: NextRequest) {
       squadId = null,
       tags = [],
       estimatedTokens = 0,
+      dependsOn = '',
     } = body;
 
     if (!title) {
@@ -90,11 +94,13 @@ export async function POST(request: NextRequest) {
 
     const id = uuid();
     const now = new Date().toISOString();
+    // dependsOn can be string (comma-sep IDs) or array
+    const dependsOnStr = Array.isArray(dependsOn) ? dependsOn.join(',') : (dependsOn || '');
 
     db.prepare(
-      `INSERT INTO tasks (id, title, description, status, priority, assignee_id, squad_id, tags, estimated_tokens, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, title, description, status, priority, assigneeId, squadId, JSON.stringify(tags), estimatedTokens, now, now);
+      `INSERT INTO tasks (id, title, description, status, priority, assignee_id, squad_id, tags, estimated_tokens, depends_on, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, title, description, status, priority, assigneeId, squadId, JSON.stringify(tags), estimatedTokens, dependsOnStr, now, now);
 
     const row = db.prepare(`
       SELECT t.*, a.name AS assignee_name, a.avatar AS assignee_avatar
@@ -102,6 +108,11 @@ export async function POST(request: NextRequest) {
       LEFT JOIN agents a ON t.assignee_id = a.id
       WHERE t.id = ?
     `).get(id) as Record<string, unknown>;
+
+    // Auto-start queue if task created as todo
+    if (status === 'todo') {
+      triggerQueueIfNeeded();
+    }
 
     return NextResponse.json(
       {
@@ -114,12 +125,14 @@ export async function POST(request: NextRequest) {
         assigneeName: row.assignee_name ?? null,
         assigneeAvatar: row.assignee_avatar ?? null,
         squadId: row.squad_id,
-        tags: JSON.parse((row.tags as string) || '[]'),
+        tags: (() => { try { return JSON.parse((row.tags as string) || '[]'); } catch { return (row.tags as string || '').split(',').map((s: string) => s.trim()).filter(Boolean); } })(),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         completedAt: row.completed_at,
         estimatedTokens: row.estimated_tokens,
         actualTokens: row.actual_tokens,
+        dependsOn: row.depends_on ?? '',
+        chainContext: row.chain_context ?? '',
       },
       { status: 201 }
     );

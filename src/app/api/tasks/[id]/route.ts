@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 
 export async function GET(
   _request: NextRequest,
@@ -36,6 +37,8 @@ export async function GET(
       completedAt: row.completed_at,
       estimatedTokens: row.estimated_tokens,
       actualTokens: row.actual_tokens,
+      dependsOn: row.depends_on ?? '',
+      chainContext: row.chain_context ?? '',
     });
   } catch (error) {
     console.error('GET /api/tasks/[id] error:', error);
@@ -69,6 +72,7 @@ export async function PUT(
       squadId: 'squad_id',
       estimatedTokens: 'estimated_tokens',
       actualTokens: 'actual_tokens',
+      chainContext: 'chain_context',
     };
 
     const setClauses: string[] = [];
@@ -84,6 +88,12 @@ export async function PUT(
     if ('tags' in body) {
       setClauses.push('tags = ?');
       values.push(JSON.stringify(body.tags));
+    }
+
+    if ('dependsOn' in body) {
+      setClauses.push('depends_on = ?');
+      const dep = body.dependsOn;
+      values.push(Array.isArray(dep) ? dep.join(',') : (dep || ''));
     }
 
     // Handle status change to 'done'
@@ -119,6 +129,11 @@ export async function PUT(
       `UPDATE tasks SET ${setClauses.join(', ')} WHERE id = ?`
     ).run(...values);
 
+    // Auto-start queue if task moved to todo
+    if (newStatus === 'todo') {
+      triggerQueueIfNeeded();
+    }
+
     const row = db.prepare(`
       SELECT t.*, a.name AS assignee_name, a.avatar AS assignee_avatar
       FROM tasks t
@@ -142,6 +157,8 @@ export async function PUT(
       completedAt: row.completed_at,
       estimatedTokens: row.estimated_tokens,
       actualTokens: row.actual_tokens,
+      dependsOn: row.depends_on ?? '',
+      chainContext: row.chain_context ?? '',
     });
   } catch (error) {
     console.error('PUT /api/tasks/[id] error:', error);

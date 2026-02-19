@@ -12,8 +12,46 @@ export function getDb(): Database.Database {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     initializeDatabase(db);
+    migrateDatabase(db);
   }
   return db;
+}
+
+function migrateDatabase(db: Database.Database) {
+  // Add depends_on column if missing (for existing DBs)
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN depends_on TEXT DEFAULT ''`);
+  } catch { /* column already exists */ }
+
+  // Add chain_context column if missing
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN chain_context TEXT DEFAULT ''`);
+  } catch { /* column already exists */ }
+
+  // Add retry_count column if missing
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0`);
+  } catch { /* column already exists */ }
+
+  // Create auto_reviews table if missing
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auto_reviews (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      reasons TEXT NOT NULL,      -- JSON array
+      checks TEXT NOT NULL,        -- JSON array of check objects
+      repaired_content TEXT,
+      created_at DATETIME DEFAULT (datetime('now')),
+      FOREIGN KEY (task_id) REFERENCES tasks(id)
+    );
+  `);
+
+  // Ensure queue_state singleton row exists
+  db.exec(`
+    INSERT OR IGNORE INTO queue_state (id, status, tasks_processed, tasks_remaining)
+    VALUES ('singleton', 'idle', 0, 0)
+  `);
 }
 
 function initializeDatabase(db: Database.Database) {
@@ -53,7 +91,19 @@ function initializeDatabase(db: Database.Database) {
       completed_at TEXT,
       estimated_tokens INTEGER DEFAULT 0,
       actual_tokens INTEGER DEFAULT 0,
+      depends_on TEXT DEFAULT '',
+      chain_context TEXT DEFAULT '',
       FOREIGN KEY (assignee_id) REFERENCES agents(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS queue_state (
+      id TEXT PRIMARY KEY DEFAULT 'singleton',
+      status TEXT DEFAULT 'idle',
+      current_task_id TEXT,
+      tasks_processed INTEGER DEFAULT 0,
+      tasks_remaining INTEGER DEFAULT 0,
+      started_at TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -117,6 +167,18 @@ function initializeDatabase(db: Database.Database) {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  // Seed system agent if not present
+  const systemAgent = db.prepare("SELECT id FROM agents WHERE id = 'system'").get();
+  if (!systemAgent) {
+    db.prepare(`
+      INSERT INTO agents (id, name, codename, avatar, role, status, personality, soul, created_at, updated_at)
+      VALUES ('system', 'Mission Control', 'SYSTEM', '🚀', 'System Orchestrator', 'online',
+        'The omniscient system that coordinates all agents.',
+        'You are Mission Control, the central nervous system of the FretCoach AI agent fleet.',
+        datetime('now'), datetime('now'))
+    `).run();
+  }
 
   // Seed default provider if none exist
   const providerCount = db.prepare('SELECT COUNT(*) as count FROM provider_configs').get() as { count: number };

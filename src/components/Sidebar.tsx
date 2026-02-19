@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Hexagon,
+  X,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -19,6 +20,8 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const navItems = [
@@ -36,13 +39,20 @@ export default function Sidebar({
   onTabChange,
   collapsed,
   onToggle,
+  mobileOpen = false,
+  onMobileClose,
 }: SidebarProps) {
-  return (
+  const handleTabChange = (tab: string) => {
+    onTabChange(tab);
+    onMobileClose?.();
+  };
+
+  const sidebarContent = (
     <motion.aside
       initial={false}
       animate={{ width: collapsed ? 72 : 260 }}
       transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-      className="glass flex flex-col h-full rounded-none border-r border-l-0 border-t-0 border-b-0 border-r-white/5 shrink-0 overflow-hidden"
+      className="glass flex flex-col h-full rounded-none border-r border-l-0 border-t-0 border-b-0 border-r-white/5 shrink-0 overflow-hidden max-md:!w-[260px]"
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 shrink-0 border-b border-white/5">
@@ -50,13 +60,13 @@ export default function Sidebar({
           <Hexagon size={20} className="text-slate-900" strokeWidth={2.5} />
         </div>
         <AnimatePresence>
-          {!collapsed && (
+          {(!collapsed || mobileOpen) && (
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -10 }}
               transition={{ duration: 0.2 }}
-              className="overflow-hidden whitespace-nowrap"
+              className="overflow-hidden whitespace-nowrap flex-1"
             >
               <span className="text-xs font-bold tracking-[0.2em] text-slate-400 uppercase">
                 Mission Control
@@ -64,6 +74,15 @@ export default function Sidebar({
             </motion.div>
           )}
         </AnimatePresence>
+        {/* Mobile close button */}
+        {mobileOpen && (
+          <button
+            onClick={onMobileClose}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        )}
       </div>
 
       {/* Navigation */}
@@ -75,7 +94,7 @@ export default function Sidebar({
           return (
             <button
               key={item.id}
-              onClick={() => onTabChange(item.id)}
+              onClick={() => handleTabChange(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${
                 isActive
                   ? 'nav-active bg-white/5 text-emerald-400'
@@ -89,7 +108,7 @@ export default function Sidebar({
                 }`}
               />
               <AnimatePresence>
-                {!collapsed && (
+                {(!collapsed || mobileOpen) && (
                   <motion.span
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -106,8 +125,8 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="px-3 pb-4 shrink-0">
+      {/* Collapse toggle - hidden on mobile */}
+      <div className="px-3 pb-4 shrink-0 hidden md:block">
         <button
           onClick={onToggle}
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all"
@@ -128,5 +147,39 @@ export default function Sidebar({
         </button>
       </div>
     </motion.aside>
+  );
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex h-full">
+        {sidebarContent}
+      </div>
+
+      {/* Mobile overlay sidebar */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+              onClick={onMobileClose}
+            />
+            <motion.div
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="md:hidden fixed inset-y-0 left-0 z-50 w-[260px]"
+            >
+              {sidebarContent}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

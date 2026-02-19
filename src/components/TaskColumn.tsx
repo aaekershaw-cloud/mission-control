@@ -12,6 +12,7 @@ import TaskCard from './TaskCard';
 interface TaskColumnProps {
   status: TaskStatus;
   tasks: Task[];
+  allTasks?: Task[];
   title: string;
   onAddTask?: (status: TaskStatus) => void;
   onTaskClick?: (task: Task) => void;
@@ -26,13 +27,13 @@ const headerAccent: Record<TaskStatus, string> = {
   done: 'border-t-emerald-500',
 };
 
-export default function TaskColumn({ status, tasks, title, onAddTask, onTaskClick, onTaskRun }: TaskColumnProps) {
+export default function TaskColumn({ status, tasks, allTasks = [], title, onAddTask, onTaskClick, onTaskRun }: TaskColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const config = TASK_STATUS_CONFIG[status];
 
   return (
     <div
-      className={`flex flex-col w-72 shrink-0 glass rounded-2xl border-t-2 ${
+      className={`flex flex-col w-64 md:w-72 shrink-0 glass rounded-2xl border-t-2 ${
         headerAccent[status]
       } ${isOver ? 'drop-target-active' : ''} drop-target`}
     >
@@ -58,7 +59,7 @@ export default function TaskColumn({ status, tasks, title, onAddTask, onTaskClic
           strategy={verticalListSortingStrategy}
         >
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} onClick={onTaskClick} onRun={onTaskRun} />
+            <TaskCard key={task.id} task={task} onClick={onTaskClick} onRun={onTaskRun} allTasks={allTasks} />
           ))}
         </SortableContext>
 

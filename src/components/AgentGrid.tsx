@@ -33,7 +33,7 @@ export default function AgentGrid({ agents, onAgentClick, onCreateAgent }: Agent
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-5 gap-3">
         <div className="flex items-center gap-3">
           <Users size={20} className="text-slate-400" />
           <h2 className="text-lg font-semibold text-slate-100">Agent Fleet</h2>
@@ -43,7 +43,7 @@ export default function AgentGrid({ agents, onAgentClick, onCreateAgent }: Agent
         </div>
 
         {/* Create + Filters */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
           {onCreateAgent && (
             <button
               onClick={onCreateAgent}

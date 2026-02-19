@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import type { TaskStatus, AnalyticsData } from '@/types';
+import type { TaskStatus } from '@/types';
 
 export async function GET() {
   try {
@@ -30,21 +30,22 @@ export async function GET() {
     `).all() as Array<{ status: TaskStatus; count: number }>;
 
     const tasksByStatus: Record<TaskStatus, number> = {
-      backlog: 0,
-      todo: 0,
-      in_progress: 0,
-      review: 0,
-      done: 0,
+      backlog: 0, todo: 0, in_progress: 0, review: 0, done: 0,
     };
     for (const row of statusRows) {
       tasksByStatus[row.status] = row.count;
     }
 
-    // Agent performance
+    // Agent performance with avg duration from task_results
     const agentPerf = db.prepare(`
-      SELECT id, name, codename, avatar, tasks_completed, tokens_used, cost_usd
-      FROM agents
-      ORDER BY tasks_completed DESC
+      SELECT a.id, a.name, a.codename, a.avatar, a.tasks_completed, a.tokens_used, a.cost_usd,
+        COALESCE(AVG(tr.duration_ms), 0) as avg_duration_ms,
+        COUNT(CASE WHEN tr.status = 'completed' THEN 1 END) as successful_results,
+        COUNT(CASE WHEN tr.status = 'error' THEN 1 END) as error_results
+      FROM agents a
+      LEFT JOIN task_results tr ON a.id = tr.agent_id
+      GROUP BY a.id
+      ORDER BY a.tasks_completed DESC
     `).all() as Record<string, unknown>[];
 
     const agentPerformance = agentPerf.map((a) => ({
@@ -55,38 +56,47 @@ export async function GET() {
       tasksCompleted: a.tasks_completed as number,
       tokensUsed: a.tokens_used as number,
       costUsd: a.cost_usd as number,
+      avgDurationMs: Math.round(a.avg_duration_ms as number),
+      successfulResults: a.successful_results as number,
+      errorResults: a.error_results as number,
     }));
 
-    // Activity timeline (last 24 hours, grouped by hour)
+    // Cost by day (last 7 days)
+    const costByDay = db.prepare(`
+      SELECT DATE(created_at) as day, SUM(cost_usd) as cost, SUM(tokens_used) as tokens, COUNT(*) as tasks
+      FROM task_results
+      WHERE created_at >= datetime('now', '-7 days')
+      GROUP BY DATE(created_at)
+      ORDER BY day ASC
+    `).all() as Array<{ day: string; cost: number; tokens: number; tasks: number }>;
+
+    // Queue history (tasks processed over time)
+    const queueHistory = db.prepare(`
+      SELECT DATE(created_at) as day, COUNT(*) as count,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+      FROM task_results
+      GROUP BY DATE(created_at)
+      ORDER BY day ASC
+    `).all() as Array<{ day: string; count: number; completed: number; errors: number }>;
+
+    // Activity timeline (last 24 hours)
     const timelineRows = db.prepare(`
-      SELECT
-        strftime('%Y-%m-%dT%H:00:00', created_at) AS hour,
-        'task' AS source
-      FROM tasks
-      WHERE created_at >= datetime('now', '-24 hours')
+      SELECT strftime('%Y-%m-%dT%H:00:00', created_at) AS hour, 'task' AS source
+      FROM tasks WHERE created_at >= datetime('now', '-24 hours')
       UNION ALL
-      SELECT
-        strftime('%Y-%m-%dT%H:00:00', created_at) AS hour,
-        'message' AS source
-      FROM messages
-      WHERE created_at >= datetime('now', '-24 hours')
+      SELECT strftime('%Y-%m-%dT%H:00:00', created_at) AS hour, 'message' AS source
+      FROM messages WHERE created_at >= datetime('now', '-24 hours')
     `).all() as Array<{ hour: string; source: string }>;
 
     const timelineMap = new Map<string, { tasks: number; messages: number }>();
-
-    // Initialize all 24 hours (using UTC to match SQLite datetime())
     for (let i = 23; i >= 0; i--) {
       const d = new Date();
       d.setUTCMinutes(0, 0, 0);
       d.setUTCHours(d.getUTCHours() - i);
-      const year = d.getUTCFullYear();
-      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(d.getUTCDate()).padStart(2, '0');
-      const hour = String(d.getUTCHours()).padStart(2, '0');
-      const key = `${year}-${month}-${day}T${hour}:00:00`;
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}T${String(d.getUTCHours()).padStart(2, '0')}:00:00`;
       timelineMap.set(key, { tasks: 0, messages: 0 });
     }
-
     for (const row of timelineRows) {
       const entry = timelineMap.get(row.hour);
       if (entry) {
@@ -94,14 +104,22 @@ export async function GET() {
         else entry.messages++;
       }
     }
-
     const activityTimeline = Array.from(timelineMap.entries()).map(([hour, data]) => ({
-      hour,
-      tasks: data.tasks,
-      messages: data.messages,
+      hour, tasks: data.tasks, messages: data.messages,
     }));
 
-    const analytics: AnalyticsData = {
+    // Recent completions
+    const recentCompletions = db.prepare(`
+      SELECT tr.id, tr.task_id, t.title as task_title, a.name as agent_name, a.avatar as agent_avatar,
+             tr.tokens_used, tr.cost_usd, tr.duration_ms, tr.status, tr.created_at
+      FROM task_results tr
+      LEFT JOIN tasks t ON tr.task_id = t.id
+      LEFT JOIN agents a ON tr.agent_id = a.id
+      ORDER BY tr.created_at DESC
+      LIMIT 20
+    `).all() as Record<string, unknown>[];
+
+    return NextResponse.json({
       totalAgents: agentStats.total_agents ?? 0,
       activeAgents: agentStats.active_agents ?? 0,
       totalTasks: taskStats.total_tasks ?? 0,
@@ -111,14 +129,23 @@ export async function GET() {
       tasksByStatus,
       agentPerformance,
       activityTimeline,
-    };
-
-    return NextResponse.json(analytics);
+      costByDay,
+      queueHistory,
+      recentCompletions: recentCompletions.map((r) => ({
+        id: r.id,
+        taskId: r.task_id,
+        taskTitle: r.task_title,
+        agentName: r.agent_name,
+        agentAvatar: r.agent_avatar,
+        tokensUsed: r.tokens_used,
+        costUsd: r.cost_usd,
+        durationMs: r.duration_ms,
+        status: r.status,
+        createdAt: r.created_at,
+      })),
+    });
   } catch (error) {
     console.error('GET /api/analytics error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch analytics' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch analytics' }, { status: 500 });
   }
 }
