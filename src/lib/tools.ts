@@ -662,7 +662,72 @@ export const TOOLS: Tool[] = [
         throw new Error(`Failed to write content: ${error.message}`);
       }
     }
-  }
+  },
+
+  // i) generate_image
+  {
+    name: 'generate_image',
+    description: 'Generate an image using Flux (via Replicate API). Returns the image URL. Use for social media posts, thumbnails, blog headers, etc. Write a detailed visual prompt — specify style, composition, colors, lighting. Do NOT include text/words in prompts (AI image gen renders text poorly). FretCoach brand colors: amber #f59e0b on dark #0a0a0f.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Detailed image generation prompt. Be specific about style, composition, lighting, colors. Avoid requesting text/words in the image.' },
+        aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:5', '3:2'], description: 'Aspect ratio. 1:1 for Instagram/general, 16:9 for YouTube/blog, 9:16 for TikTok/Stories, 4:5 for Instagram feed.' },
+        output_format: { type: 'string', enum: ['png', 'jpg', 'webp'], description: 'Output format (default: jpg)' }
+      },
+      required: ['prompt']
+    },
+    execute: async (params: { prompt: string; aspect_ratio?: string; output_format?: string }) => {
+      const apiToken = process.env.REPLICATE_API_TOKEN;
+      if (!apiToken) throw new Error('REPLICATE_API_TOKEN not set');
+
+      const { prompt, aspect_ratio = '1:1', output_format = 'jpg' } = params;
+
+      const createRes = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: { prompt, aspect_ratio, output_format, num_outputs: 1, go_fast: true }
+        })
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.text();
+        throw new Error(`Replicate API error ${createRes.status}: ${err}`);
+      }
+
+      let prediction = await createRes.json();
+
+      const maxWait = 60000;
+      const start = Date.now();
+      while (prediction.status !== 'succeeded' && prediction.status !== 'failed') {
+        if (Date.now() - start > maxWait) throw new Error('Image generation timed out (60s)');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
+          headers: { 'Authorization': `Bearer ${apiToken}` }
+        });
+        prediction = await pollRes.json();
+      }
+
+      if (prediction.status === 'failed') {
+        throw new Error(`Image generation failed: ${prediction.error || 'Unknown error'}`);
+      }
+
+      const imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+
+      return {
+        url: imageUrl,
+        prompt,
+        aspect_ratio,
+        model: 'flux-schnell',
+        prediction_id: prediction.id,
+        cost_estimate: '$0.003'
+      };
+    }
+  },
 ];
 
 // Helper function to get scale description (used by music_theory tool)

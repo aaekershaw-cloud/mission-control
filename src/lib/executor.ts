@@ -461,9 +461,24 @@ Structure each caption as a separate section divided by ---. Include hashtags at
   const isContent = taskTags.some(t => contentTags.some(ct => t.toLowerCase().includes(ct)));
   if (isContent) {
     const platform = taskTags.find(t => ['instagram','twitter','tiktok','youtube'].some(p => t.toLowerCase().includes(p))) || 'blog';
+    // Extract image URL from agent response (could be in JSON or tool output)
+    let thumbnailUrl = null;
+    try {
+      const jsonMatch = finalResponse.match(/"image_url"\s*:\s*"(https?:\/\/[^"]+)"/);
+      if (jsonMatch) thumbnailUrl = jsonMatch[1];
+      if (!thumbnailUrl) {
+        // Check tool usage summary for generate_image results
+        const toolImageMatch = toolUsageSummary.join(' ').match(/generate_image/);
+        if (toolImageMatch) {
+          // Look for replicate URL pattern in response
+          const replicateMatch = finalResponse.match(/(https:\/\/replicate\.delivery\/[^\s"']+)/);
+          if (replicateMatch) thumbnailUrl = replicateMatch[1];
+        }
+      }
+    } catch {}
     await db.run(
-      'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())',
-      [uuid(), task.title, finalResponse.substring(0, 5000), 'review', platform, task.assignee_id, JSON.stringify({ taskId: task.id, autoCreated: true })]
+      'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, thumbnail_url, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())',
+      [uuid(), task.title, finalResponse.substring(0, 5000), 'review', platform, task.assignee_id, thumbnailUrl, JSON.stringify({ taskId: task.id, autoCreated: true })]
     );
     await logActivity('content', `Content created: ${task.title}`, `Auto-added to pipeline as "${platform}" content`, task.assignee_id, { 
       taskId: task.id, 
