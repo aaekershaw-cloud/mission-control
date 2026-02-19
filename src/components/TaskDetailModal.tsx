@@ -150,9 +150,8 @@ export default function TaskDetailModal({
   function handleSave() {
     if (!title.trim()) return;
 
-    // If in review mode with feedback, submit the revision via review API
-    if (task?.status === 'review' && reviewAction && reviewFeedback.trim()) {
-      handleReviewAction(reviewAction);
+    // If in review mode, don't allow regular save — use review buttons instead
+    if (task?.status === 'review' && status === 'review') {
       return;
     }
 
@@ -161,8 +160,7 @@ export default function TaskDetailModal({
       .map((t) => t.trim())
       .filter(Boolean);
 
-    // When saving a review item, move it back to todo so the queue picks it up
-    const effectiveStatus = task?.status === 'review' && status === 'review' ? 'todo' as TaskStatus : status;
+    const effectiveStatus = status;
 
     if (isCreating) {
       // Create mode - onSave will handle the POST
@@ -372,62 +370,79 @@ export default function TaskDetailModal({
                     Full Preview
                   </button>
                 </div>
-                <div className="glass-sm p-4 text-sm text-slate-300 whitespace-pre-wrap max-h-80 overflow-y-auto leading-relaxed hover:overflow-y-scroll cursor-text select-text">
+                <div className="glass-sm p-4 text-sm text-slate-300 whitespace-pre-wrap max-h-80 overflow-y-auto leading-relaxed cursor-text select-text">
                   {reviewResult.response}
                 </div>
                 <div className="text-[10px] text-slate-500">
                   {reviewResult.agent_avatar} {reviewResult.agent_name} · {reviewResult.tokens_used} tokens · {(reviewResult.duration_ms / 1000).toFixed(1)}s
                 </div>
 
-                {/* Feedback input for reject/revise */}
-                {reviewAction && (
-                  <div>
-                    <textarea
-                      value={reviewFeedback}
-                      onChange={(e) => setReviewFeedback(e.target.value)}
-                      placeholder={reviewAction === 'reject' ? 'What needs to change? Agent will re-run with this feedback...' : 'What should be revised? A new task will be created...'}
-                      rows={3}
-                      className="w-full glass-sm px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none resize-none focus:border-amber-500/30 transition-colors"
-                      autoFocus
-                    />
-                  </div>
-                )}
+                {/* Feedback input — always visible */}
+                <div>
+                  <textarea
+                    value={reviewFeedback}
+                    onChange={(e) => setReviewFeedback(e.target.value)}
+                    placeholder="Feedback for reject/revise (optional for approve)..."
+                    rows={3}
+                    className="w-full glass-sm px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none resize-none focus:border-amber-500/30 transition-colors"
+                  />
+                </div>
 
                 {/* Review action buttons */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => handleReviewAction('approve')}
                     disabled={reviewLoading}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 active:bg-emerald-500/35 transition-all disabled:opacity-50"
                   >
                     <CheckCircle size={14} />
                     Approve
                   </button>
                   <button
-                    onClick={() => reviewAction === 'revise' && reviewFeedback.trim() ? handleReviewAction('revise') : setReviewAction('revise')}
+                    onClick={() => {
+                      if (!reviewFeedback.trim()) {
+                        setReviewAction('revise');
+                        // Focus the textarea
+                        const ta = document.querySelector('textarea[placeholder*="Feedback"]') as HTMLTextAreaElement;
+                        if (ta) { ta.focus(); ta.placeholder = 'What should be revised? A new task will be created...'; }
+                        return;
+                      }
+                      handleReviewAction('revise');
+                    }}
                     disabled={reviewLoading}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50 ${
+                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 active:scale-95 ${
                       reviewAction === 'revise'
-                        ? 'text-blue-300 bg-blue-500/25 border border-blue-500/50'
+                        ? 'text-blue-300 bg-blue-500/25 border border-blue-500/50 animate-pulse'
                         : 'text-blue-300 bg-blue-500/15 border border-blue-500/30 hover:bg-blue-500/25'
                     }`}
                   >
                     <RotateCcw size={14} />
-                    Revise
+                    {reviewAction === 'revise' && !reviewFeedback.trim() ? 'Add feedback ↑' : 'Revise'}
                   </button>
                   <button
-                    onClick={() => reviewAction === 'reject' && reviewFeedback.trim() ? handleReviewAction('reject') : setReviewAction('reject')}
+                    onClick={() => {
+                      if (!reviewFeedback.trim()) {
+                        setReviewAction('reject');
+                        const ta = document.querySelector('textarea[placeholder*="Feedback"]') as HTMLTextAreaElement;
+                        if (ta) { ta.focus(); ta.placeholder = 'What needs to change? Agent will re-run with this feedback...'; }
+                        return;
+                      }
+                      handleReviewAction('reject');
+                    }}
                     disabled={reviewLoading}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50 ${
+                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 active:scale-95 ${
                       reviewAction === 'reject'
-                        ? 'text-red-300 bg-red-500/25 border border-red-500/50'
+                        ? 'text-red-300 bg-red-500/25 border border-red-500/50 animate-pulse'
                         : 'text-red-300 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25'
                     }`}
                   >
                     <XCircle size={14} />
-                    Reject
+                    {reviewAction === 'reject' && !reviewFeedback.trim() ? 'Add feedback ↑' : 'Reject'}
                   </button>
                 </div>
+                {reviewAction && !reviewFeedback.trim() && (
+                  <p className="text-xs text-amber-400">⚠ Type your feedback above, then tap {reviewAction === 'reject' ? 'Reject' : 'Revise'} again.</p>
+                )}
               </div>
             )}
 

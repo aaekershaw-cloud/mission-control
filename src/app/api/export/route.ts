@@ -128,9 +128,7 @@ export async function POST(req: NextRequest) {
       execSync('git add content/', { cwd: REPO_DIR, stdio: 'pipe' });
       const msg = `content: export ${exported.length} item(s) — ${exported.map(e => e.category).filter((v, i, a) => a.indexOf(v) === i).join(', ')}`;
       execSync(`git commit -m "${msg}" --allow-empty`, { cwd: REPO_DIR, stdio: 'pipe' });
-      if (body.autoPush) {
-        execSync('git push', { cwd: REPO_DIR, stdio: 'pipe' });
-      }
+      execSync('git push origin main', { cwd: REPO_DIR, stdio: 'pipe' });
     } catch (err) {
       console.error('[Export] Git error:', err);
     }
