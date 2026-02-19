@@ -35,9 +35,8 @@ interface ContentItem {
 
 const STAGES = [
   { id: 'idea', label: '💡 Ideas', color: 'from-purple-500 to-purple-400' },
-  { id: 'writing', label: '📝 Writing', color: 'from-blue-500 to-blue-400' },
+  { id: 'writing', label: '✏️ Drafting', color: 'from-blue-500 to-blue-400' },
   { id: 'review', label: '👀 Review', color: 'from-yellow-500 to-yellow-400' },
-  { id: 'assets', label: '🎨 Assets', color: 'from-pink-500 to-pink-400' },
   { id: 'scheduled', label: '📅 Scheduled', color: 'from-orange-500 to-orange-400' },
   { id: 'published', label: '✅ Published', color: 'from-green-500 to-green-400' },
 ];
@@ -47,7 +46,6 @@ const PLATFORMS = [
   { id: 'instagram', label: 'Instagram', icon: '📷', color: 'bg-gradient-to-br from-purple-500 to-pink-500' },
   { id: 'tiktok', label: 'TikTok', icon: '🎵', color: 'bg-black' },
   { id: 'youtube', label: 'YouTube', icon: '📺', color: 'bg-red-600' },
-  { id: 'blog', label: 'Blog', icon: '✍️', color: 'bg-slate-600' },
 ];
 
 export default function ContentPipelinePage() {
@@ -156,7 +154,7 @@ export default function ContentPipelinePage() {
   };
 
   const getPlatformConfig = (platformId: string) => {
-    return PLATFORMS.find(p => p.id === platformId) || PLATFORMS[4]; // default to blog
+    return PLATFORMS.find(p => p.id === platformId) || PLATFORMS[0]; // default to X
   };
 
   const handleCreateContent = async (contentData: Partial<ContentItem>) => {
@@ -178,7 +176,7 @@ export default function ContentPipelinePage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-white">📝 Content Pipeline</h1>
+          <h1 className="text-2xl font-bold text-white">📱 Social Media Pipeline</h1>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
@@ -339,7 +337,7 @@ function ContentCard({
   onClick?: () => void;
   isDragging?: boolean;
 }) {
-  const platform = platforms.find(p => p.id === content.platform) || platforms[4];
+  const platform = platforms.find(p => p.id === content.platform) || platforms[0];
 
   return (
     <div
@@ -348,6 +346,11 @@ function ContentCard({
         isDragging ? 'opacity-50 rotate-2' : ''
       }`}
     >
+      {/* Thumbnail */}
+      {content.thumbnail_url && (
+        <img src={content.thumbnail_url} alt="" className="w-full h-32 object-cover rounded-lg mb-3" />
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
         <h4 className="font-medium text-white text-sm line-clamp-2 flex-1">
@@ -418,7 +421,7 @@ function CreateContentModal({
   const [formData, setFormData] = useState({
     title: '',
     body: '',
-    platform: 'blog',
+    platform: 'instagram',
     assigned_agent_id: '',
     tags: [] as string[],
     notes: '',
@@ -572,8 +575,15 @@ function ContentDetailModal({
         </div>
         
         <div className="space-y-4">
+          {content.thumbnail_url && (
+            <div>
+              <h4 className="font-medium text-white mb-2">Image</h4>
+              <img src={content.thumbnail_url} alt="" className="w-full max-w-md rounded-lg border border-white/10" />
+            </div>
+          )}
+          
           <div>
-            <h4 className="font-medium text-white mb-2">Content</h4>
+            <h4 className="font-medium text-white mb-2">Caption</h4>
             <div className="p-4 bg-white/5 rounded-lg">
               <pre className="whitespace-pre-wrap text-slate-300 text-sm">
                 {content.body || 'No content yet'}

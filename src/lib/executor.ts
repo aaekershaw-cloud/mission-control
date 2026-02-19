@@ -455,12 +455,12 @@ Structure each caption as a separate section divided by ---. Include hashtags at
     cost: costUsd 
   });
 
-  // Auto-create content pipeline item if task has content-related tags
-  const contentTags = ['lick', 'course', 'lesson', 'blog', 'social', 'instagram', 'twitter', 'tiktok'];
+  // Auto-create content pipeline item for social media tasks only
+  const socialTags = ['social', 'instagram', 'twitter', 'tiktok', 'youtube', 'caption', 'reel', 'post'];
   const taskTags = JSON.parse(task.tags || '[]');
-  const isContent = taskTags.some(t => contentTags.some(ct => t.toLowerCase().includes(ct)));
-  if (isContent) {
-    const platform = taskTags.find(t => ['instagram','twitter','tiktok','youtube'].some(p => t.toLowerCase().includes(p))) || 'blog';
+  const isSocial = taskTags.some(t => socialTags.some(st => t.toLowerCase().includes(st)));
+  if (isSocial) {
+    const platform = taskTags.find(t => ['instagram','twitter','tiktok','youtube'].some(p => t.toLowerCase().includes(p))) || 'x';
     // Extract image URL from agent response (could be in JSON or tool output)
     let thumbnailUrl = null;
     try {

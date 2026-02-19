@@ -31,7 +31,7 @@ const TAB_TITLES: Record<TabId, string> = {
   tasks: 'Mission Board',
   calendar: 'Calendar',
   memory: 'Memory Browser',
-  content: 'Content Pipeline',
+  content: 'Social Media',
   activity: 'Activity Feed',
   'stripe-dashboard': 'Revenue Dashboard',
   comms: 'Comms Center',
