@@ -337,6 +337,8 @@ function ImageUploadField({
   const [preview, setPreview] = useState<string | null>(currentUrl || null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
+  const isVideo = (url: string | null) => url && /\.(mp4|mov|webm|avi)$/i.test(url);
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -371,12 +373,16 @@ function ImageUploadField({
     <div>
       <label className="text-sm font-medium text-slate-400 mb-1 block">Image</label>
       {preview && (
-        <img src={preview} alt="" className="w-full max-w-sm rounded-lg border border-white/10 mb-2" />
+        isVideo(preview) ? (
+          <video src={preview} controls className="w-full max-w-sm rounded-lg border border-white/10 mb-2" />
+        ) : (
+          <img src={preview} alt="" className="w-full max-w-sm rounded-lg border border-white/10 mb-2" />
+        )
       )}
       <input
         ref={fileRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
         onChange={handleUpload}
         className="hidden"
       />
@@ -416,7 +422,11 @@ function ContentCard({
     >
       {/* Thumbnail */}
       {content.thumbnail_url && (
-        <img src={content.thumbnail_url} alt="" className="w-full h-32 object-cover rounded-lg mb-3" />
+        /\.(mp4|mov|webm|avi)$/i.test(content.thumbnail_url) ? (
+          <video src={content.thumbnail_url} muted className="w-full h-32 object-cover rounded-lg mb-3" />
+        ) : (
+          <img src={content.thumbnail_url} alt="" className="w-full h-32 object-cover rounded-lg mb-3" />
+        )
       )}
 
       {/* Header */}

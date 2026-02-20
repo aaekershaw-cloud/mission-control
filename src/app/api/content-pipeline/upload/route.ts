@@ -13,14 +13,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo',
+    ];
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ error: 'Invalid file type. Use JPG, PNG, GIF, or WebP.' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid file type. Use JPG, PNG, GIF, WebP, MP4, MOV, or WebM.' }, { status: 400 });
     }
 
-    // 10MB limit
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 });
+    // 100MB limit for video, 10MB for images
+    const isVideo = file.type.startsWith('video/');
+    const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return NextResponse.json({ error: `File too large (max ${isVideo ? '100MB' : '10MB'})` }, { status: 400 });
     }
 
     const ext = file.name.split('.').pop() || 'jpg';
