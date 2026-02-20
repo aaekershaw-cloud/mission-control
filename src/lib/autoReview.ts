@@ -185,7 +185,7 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
 
   // 6. Strategy/business tasks — always need Andrew's eyes
   const strategicTags = ['strategy', 'pricing', 'business', 'market-research', 'competitive'];
-  const strategicCodenames = ['BIZOPS', 'COACH', 'FEEDBACK', 'COMMUNITY'];
+  const strategicCodenames = ['BIZOPS', 'COACH', 'FEEDBACK', 'COMMUNITY', 'SEOHAWK'];
   const isStrategic = tags.some((tag: string) => strategicTags.includes(tag.toLowerCase()))
     || strategicCodenames.includes((task.agent_codename as string || '').toUpperCase());
 

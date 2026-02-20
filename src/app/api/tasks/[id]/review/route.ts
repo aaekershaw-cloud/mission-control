@@ -167,7 +167,7 @@ export async function POST(
 
     // If this is a strategic/BizOps task, create implementation tasks from the recommendations
     const agentCodename = (task as any).agent_codename || '';
-    const strategicCodenames = ['BIZOPS', 'COACH', 'FEEDBACK', 'COMMUNITY'];
+    const strategicCodenames = ['BIZOPS', 'COACH', 'FEEDBACK', 'COMMUNITY', 'SEOHAWK'];
     const isStrategic = strategicCodenames.includes(agentCodename.toUpperCase());
 
     if (isStrategic) {
