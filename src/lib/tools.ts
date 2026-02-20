@@ -731,7 +731,22 @@ export const TOOLS: Tool[] = [
   // j) delegate_task — recruit another agent
   {
     name: 'delegate_task',
-    description: 'Create a task and assign it to another agent. Use this to recruit specialists — e.g. ask TabSmith to write tab, TheoryBot to explain theory, SEOHawk to optimize for search, TrackMaster for backing tracks. The delegated task runs asynchronously and returns the result.',
+    description: `Create a task and assign it to another agent. Use this whenever you need specialized help — don't try to do everything yourself.
+
+AGENT ROSTER (recruit by codename):
+• TABSMITH — Guitar tab notation expert. Writes accurate, well-formatted tablature.
+• LESSON_ARCHITECT — Builds structured lessons with learning objectives, activities, and assessments.
+• TRACKMASTER — Creates backing tracks and audio content.
+• THEORYBOT — Music theory specialist. Scales, chords, intervals, progressions.
+• COACH — Practice plans, technique advice, student guidance.
+• FEEDBACK_LOOP — Reviews content quality, UX, and consistency.
+• CONTENTMILL — Social media captions, blog posts, marketing copy.
+• SEOHAWK — SEO optimization, keyword research, meta descriptions.
+• COMMUNITY_PULSE — Community engagement, social listening, trend analysis.
+• BIZOPS — Business strategy, pricing, market research.
+• PRODUCER — Project management, task planning, batch generation.
+
+The delegated task runs automatically. Use when: you need tab written, theory checked, content reviewed, SEO optimized, images generated, or any work outside your specialty.`,
     parameters: {
       type: 'object',
       properties: {

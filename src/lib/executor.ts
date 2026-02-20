@@ -153,11 +153,17 @@ Structure each caption as a separate section divided by ---. Include hashtags at
 - Do NOT include conversational text before or after the JSON/HTML code fence — output ONLY the content.
 `;
 
+  const collaborationGuide = `
+## COLLABORATION
+You are part of a team. If a task requires skills outside your specialty, use the \`delegate_task\` tool to recruit another agent. Don't struggle with something another agent does better.
+`;
+
   const systemPrompt = [
     task.agent_soul || '',
     task.agent_personality ? `\nPersonality: ${task.agent_personality}` : '',
     task.agent_role ? `\nRole: ${task.agent_role}` : '',
     outputFormatGuide,
+    collaborationGuide,
   ].filter(Boolean).join('\n');
 
   // Build user prompt — include chain context from parent tasks if present

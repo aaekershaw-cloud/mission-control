@@ -2,18 +2,18 @@ import { TOOLS, Tool } from './tools';
 
 // Map each agent codename to their allowed tools
 const AGENT_TOOLS: Record<string, string[]> = {
-  'TABSMITH': ['music_theory', 'validate_tab', 'list_content', 'get_brand_context'],
-  'LESSON_ARCHITECT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context'],
-  'TRACKMASTER': ['music_theory', 'list_content', 'get_brand_context'],
-  'THEORYBOT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context'],
-  'COACH': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context'],
-  'FEEDBACK_LOOP': ['list_content', 'search_tasks', 'get_brand_context'],
+  'TABSMITH': ['music_theory', 'validate_tab', 'list_content', 'get_brand_context', 'delegate_task'],
+  'LESSON_ARCHITECT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
+  'TRACKMASTER': ['music_theory', 'list_content', 'get_brand_context', 'delegate_task'],
+  'THEORYBOT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
+  'COACH': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
+  'FEEDBACK_LOOP': ['list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
   'CONTENT_MILL': ['search_web', 'fetch_url', 'list_content', 'get_brand_context', 'write_content', 'generate_image', 'delegate_task'],
   'CONTENTMILL': ['search_web', 'fetch_url', 'list_content', 'get_brand_context', 'write_content', 'generate_image', 'delegate_task'],
-  'SEOHAWK': ['search_web', 'fetch_url', 'list_content', 'get_brand_context'],
-  'COMMUNITY_PULSE': ['search_web', 'fetch_url', 'list_content', 'get_brand_context'],
-  'BIZOPS': ['search_web', 'fetch_url', 'list_content', 'search_tasks', 'get_brand_context'],
-  'PRODUCER': ['list_content', 'search_tasks', 'get_brand_context'],
+  'SEOHAWK': ['search_web', 'fetch_url', 'list_content', 'get_brand_context', 'delegate_task'],
+  'COMMUNITY_PULSE': ['search_web', 'fetch_url', 'list_content', 'get_brand_context', 'delegate_task'],
+  'BIZOPS': ['search_web', 'fetch_url', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
+  'PRODUCER': ['list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
 };
 
 /**
