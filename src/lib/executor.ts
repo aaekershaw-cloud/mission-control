@@ -4,6 +4,7 @@ import { notifyReviewReady } from '@/lib/notify';
 import { getToolsForAgent, executeTool } from '@/lib/agentTools';
 import { processAutoReview } from '@/lib/autoApprove';
 import { logActivity } from '@/lib/activityLog';
+import { subscribeToTask, notifyTaskSubscribers, updateWorkingMemory } from '@/lib/notifications';
 
 export interface ExecutionResult {
   id: string;
@@ -38,7 +39,7 @@ export async function executeTask(
   const task = await db.get(`
     SELECT t.*, a.id as agent_id, a.name as agent_name, a.avatar as agent_avatar,
            a.role as agent_role, a.personality as agent_personality, a.soul as agent_soul,
-           a.provider as agent_provider, a.codename as agent_codename
+           a.provider as agent_provider, a.codename as agent_codename, a.level as agent_level
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
     WHERE t.id = $1
@@ -100,6 +101,10 @@ export async function executeTask(
     status: 'started' 
   });
 
+  // Subscribe agent to this task's thread + update working memory
+  await subscribeToTask(agentId, taskId);
+  await updateWorkingMemory(agentId, `## Current Task\n**${task.title}**\nStatus: In Progress\nStarted: ${new Date().toISOString()}\n\n${(task.description as string || '').substring(0, 500)}`);
+
   // Build system prompt from agent soul/personality/role
   const outputFormatGuide = `
 ## OUTPUT FORMAT RULES (MANDATORY)
@@ -153,9 +158,20 @@ Structure each caption as a separate section divided by ---. Include hashtags at
 - Do NOT include conversational text before or after the JSON/HTML code fence — output ONLY the content.
 `;
 
+  // Agent level context
+  const agentLevel = (task as any).agent_level || 'specialist';
+  const levelGuide = agentLevel === 'lead' 
+    ? 'You have LEAD level autonomy. You can make decisions and delegate freely.'
+    : agentLevel === 'intern'
+    ? 'You have INTERN level autonomy. All your output will be reviewed by a human before any action is taken. Be thorough and explain your reasoning.'
+    : 'You have SPECIALIST level autonomy. You work independently in your domain.';
+
   const collaborationGuide = `
 ## COLLABORATION
 You are part of a team. If a task requires skills outside your specialty, use the \`delegate_task\` tool to recruit another agent. Don't struggle with something another agent does better.
+
+## YOUR LEVEL
+${levelGuide}
 `;
 
   // Build caller context for tool calls (used by delegate_task etc.)
@@ -522,6 +538,10 @@ You are part of a team. If a task requires skills outside your specialty, use th
   const msgId = uuid();
   const summary = `✅ Completed task "${task.title}" in ${(durationMs / 1000).toFixed(1)}s using ${tokensUsed} tokens ($${costUsd.toFixed(4)})`;
   await db.run("INSERT INTO messages (id, from_agent_id, content, type) VALUES ($1, $2, $3, 'system')", [msgId, agentId, summary]);
+
+  // Update working memory + notify task subscribers
+  await updateWorkingMemory(agentId, `## Last Completed\n**${task.title}**\nCompleted: ${new Date().toISOString()}\nResult: ${finalResponse.substring(0, 200)}...`);
+  await notifyTaskSubscribers(taskId, `${task.agent_name} completed "${task.title}"`, agentId);
 
   // If this was a delegated task, report back to the recruiter
   const completedTaskTags = (() => { try { return JSON.parse(task.tags as string || '[]'); } catch { return []; } })() as string[];

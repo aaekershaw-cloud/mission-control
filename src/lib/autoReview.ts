@@ -17,7 +17,7 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
   
   // Load task + latest task_result from DB
   const task = await db.get(`
-    SELECT t.*, a.name as agent_name, a.codename as agent_codename
+    SELECT t.*, a.name as agent_name, a.codename as agent_codename, a.level as agent_level
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
     WHERE t.id = $1
@@ -168,6 +168,18 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
   }
 
   // **ALWAYS FLAG CATEGORIES**
+
+  // 4b. Intern-level agents always need review
+  const agentLevel = (task.agent_level as string || 'specialist').toLowerCase();
+  if (agentLevel === 'intern') {
+    checks.push({
+      name: 'Agent Level Check',
+      passed: false,
+      detail: `${task.agent_name} is an intern-level agent — all output requires human approval`
+    });
+    reasons.push(`Intern agent (${task.agent_name}) — needs approval before any action`);
+    return { decision: 'flag', reasons, checks, repairedContent };
+  }
   
   // 5. Social, email, caption content
   const publicFacingTags = ['social', 'email', 'caption'];

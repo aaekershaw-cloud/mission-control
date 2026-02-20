@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getHeartbeatSchedule, getAgentStatus } from '@/lib/heartbeatCron';
 import { v4 as uuid } from 'uuid';
+import { consumeNotifications } from '@/lib/notifications';
 
 export async function POST() {
   try {
@@ -9,10 +10,10 @@ export async function POST() {
     const schedule = getHeartbeatSchedule();
     const results: Array<{ agentId: string; agentName: string; status: string; unreadCount: number }> = [];
 
-    for (const entry of schedule) {
+    // Process agents with staggered delays (fire-and-forget for delayed ones)
+    async function processAgent(entry: typeof schedule[0]) {
       const status = getAgentStatus(entry.agentId);
 
-      // Send heartbeat
       const res = await fetch('http://localhost:3003/api/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -21,24 +22,52 @@ export async function POST() {
       const data = await res.json();
       const unreadMessages = data.unreadMessages || [];
 
-      // Auto-acknowledge directed messages
       for (const msg of unreadMessages) {
         if (msg.toAgentId === entry.agentId) {
           const ackId = uuid();
-          const now = new Date().toISOString();
           await db.run(
-            `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-            [ackId, entry.agentId, msg.fromAgentId, `📬 Acknowledged: "${msg.content.substring(0, 80)}${msg.content.length > 80 ? '...' : ''}"`, 'system', now]
+            `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
+            [ackId, entry.agentId, msg.fromAgentId, `📬 Acknowledged: "${msg.content.substring(0, 80)}${msg.content.length > 80 ? '...' : ''}"`, 'system']
           );
         }
       }
 
-      results.push({
+      // Deliver pending notifications
+      const notifications = await consumeNotifications(entry.agentId);
+      for (const notif of notifications) {
+        const notifMsgId = uuid();
+        await db.run(
+          `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [notifMsgId, notif.sourceAgentId || 'system', entry.agentId, `🔔 ${notif.content}`, 'notification']
+        );
+      }
+
+      return {
         agentId: entry.agentId,
         agentName: entry.agentName,
         status,
         unreadCount: unreadMessages.length,
-      });
+        notificationsDelivered: notifications.length,
+        offsetMinutes: entry.offsetMinutes,
+      };
+    }
+
+    // First agent runs immediately, rest are staggered
+    const firstResult = await processAgent(schedule[0]);
+    results.push(firstResult);
+
+    // Stagger remaining agents (fire-and-forget with delays)
+    for (let i = 1; i < schedule.length; i++) {
+      const entry = schedule[i];
+      const delayMs = entry.offsetMinutes * 60 * 1000;
+      setTimeout(async () => {
+        try {
+          await processAgent(entry);
+        } catch (e) {
+          console.error(`[Heartbeat] ${entry.agentName} staggered beat failed:`, e);
+        }
+      }, delayMs);
+      results.push({ agentId: entry.agentId, agentName: entry.agentName, status: 'scheduled', unreadCount: 0, notificationsDelivered: 0, delayMs } as any);
     }
 
     return NextResponse.json({ ok: true, agents: results });

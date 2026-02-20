@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
-import { unlockDependentTasks } from '@/lib/executor';
+import { unlockDependentTasks, checkAndRefillQueue } from '@/lib/executor';
 import { v4 as uuid } from 'uuid';
 import { logActivity } from '@/lib/activityLog';
+import { processAtMentions, subscribeToTask, notifyTaskSubscribers } from '@/lib/notifications';
 
 const SYSTEM_AGENT_ID = 'system';
 
