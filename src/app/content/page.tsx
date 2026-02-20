@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,7 @@ import {
   DragOverEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Filter, X, Calendar, User, Image, ExternalLink } from 'lucide-react';
+import { Plus, Filter, X, Calendar, User, Image, ExternalLink, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface ContentItem {
@@ -325,6 +325,74 @@ export default function ContentPipelinePage() {
   );
 }
 
+// Image Upload Component
+function ImageUploadField({
+  currentUrl,
+  onUploaded,
+}: {
+  currentUrl?: string | null;
+  onUploaded: (url: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<string | null>(currentUrl || null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Local preview
+    setPreview(URL.createObjectURL(file));
+    setUploading(true);
+
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+      const res = await fetch('/api/content-pipeline/upload', { method: 'POST', body: form });
+      if (res.ok) {
+        const { url } = await res.json();
+        onUploaded(url);
+        setPreview(url);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Upload failed');
+        setPreview(currentUrl || null);
+      }
+    } catch {
+      alert('Upload failed');
+      setPreview(currentUrl || null);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-sm font-medium text-slate-400 mb-1 block">Image</label>
+      {preview && (
+        <img src={preview} alt="" className="w-full max-w-sm rounded-lg border border-white/10 mb-2" />
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        onChange={handleUpload}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-300 hover:bg-white/10 transition-all disabled:opacity-50"
+      >
+        <Upload size={14} />
+        {uploading ? 'Uploading...' : preview ? 'Replace Image' : 'Upload Image'}
+      </button>
+    </div>
+  );
+}
+
 // Content Card Component
 function ContentCard({
   content,
@@ -425,6 +493,7 @@ function CreateContentModal({
     assigned_agent_id: '',
     tags: [] as string[],
     notes: '',
+    thumbnail_url: '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -520,6 +589,10 @@ function CreateContentModal({
             />
           </div>
 
+          <ImageUploadField
+            onUploaded={(url) => setFormData(prev => ({ ...prev, thumbnail_url: url }))}
+          />
+
           <div className="flex gap-3 pt-4">
             <button
               type="button"
@@ -555,10 +628,21 @@ function ContentDetailModal({
   onUpdate: () => void;
 }) {
   const [editedBody, setEditedBody] = useState(content.body || '');
-  const [editedPlatform, setEditedPlatform] = useState(content.platform);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([content.platform]);
   const [saving, setSaving] = useState(false);
   const [actionInProgress, setActionInProgress] = useState('');
-  const isEdited = editedBody !== (content.body || '') || editedPlatform !== content.platform;
+  const isEdited = editedBody !== (content.body || '') || selectedPlatforms[0] !== content.platform || selectedPlatforms.length > 1;
+
+  const togglePlatform = (pid: string) => {
+    setSelectedPlatforms(prev => {
+      if (prev.includes(pid)) {
+        // Don't allow deselecting the last one
+        if (prev.length === 1) return prev;
+        return prev.filter(p => p !== pid);
+      }
+      return [...prev, pid];
+    });
+  };
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -577,29 +661,20 @@ function ContentDetailModal({
 
   const handleSave = async () => {
     setSaving(true);
-    await updateContent({ body: editedBody, platform: editedPlatform });
+    await updateContent({ body: editedBody, platform: selectedPlatforms[0] });
     setSaving(false);
   };
 
   const handleApprove = async () => {
     setActionInProgress('approve');
-    // Save edits first if any
-    if (isEdited) {
-      await updateContent({ body: editedBody, platform: editedPlatform, stage: 'scheduled' });
-    } else {
-      await updateContent({ stage: 'scheduled' });
-    }
+    await updateContent({ body: editedBody, platform: selectedPlatforms[0], platforms: selectedPlatforms, stage: 'scheduled' });
     setActionInProgress('');
     onClose();
   };
 
   const handlePublish = async () => {
     setActionInProgress('publish');
-    if (isEdited) {
-      await updateContent({ body: editedBody, platform: editedPlatform, stage: 'published' });
-    } else {
-      await updateContent({ stage: 'published' });
-    }
+    await updateContent({ body: editedBody, platform: selectedPlatforms[0], platforms: selectedPlatforms, stage: 'published' });
     setActionInProgress('');
     onClose();
   };
@@ -641,29 +716,41 @@ function ContentDetailModal({
           </button>
         </div>
 
-        {/* Platform selector */}
-        <div className="flex gap-2 mb-4">
-          {platforms.map(p => (
-            <button
-              key={p.id}
-              onClick={() => setEditedPlatform(p.id)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                editedPlatform === p.id
-                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                  : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white'
-              }`}
-            >
-              {p.icon} {p.label}
-            </button>
-          ))}
+        {/* Platform selector (multi-select) */}
+        <div className="mb-4">
+          <label className="text-xs text-slate-500 mb-1.5 block">Post to platforms</label>
+          <div className="flex gap-2">
+            {platforms.map(p => (
+              <button
+                key={p.id}
+                onClick={() => togglePlatform(p.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  selectedPlatforms.includes(p.id)
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                    : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white'
+                }`}
+              >
+                {p.icon} {p.label}
+                {selectedPlatforms.includes(p.id) && ' ✓'}
+              </button>
+            ))}
+          </div>
+          {selectedPlatforms.length > 1 && (
+            <p className="text-xs text-amber-400/70 mt-1.5">
+              Will post to {selectedPlatforms.length} platforms
+            </p>
+          )}
         </div>
         
         {/* Image */}
-        {content.thumbnail_url && (
-          <div className="mb-4">
-            <img src={content.thumbnail_url} alt="" className="w-full max-w-sm rounded-lg border border-white/10" />
-          </div>
-        )}
+        <div className="mb-4">
+          <ImageUploadField
+            currentUrl={content.thumbnail_url}
+            onUploaded={async (url) => {
+              await updateContent({ thumbnail_url: url });
+            }}
+          />
+        </div>
 
         {/* Editable caption */}
         <div className="mb-4">
@@ -675,7 +762,7 @@ function ContentDetailModal({
             className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm resize-y focus:outline-none focus:border-amber-500/50"
             placeholder="Write your caption..."
           />
-          {editedPlatform === 'x' && (
+          {selectedPlatforms.includes('x') && (
             <p className={`text-xs mt-1 ${editedBody.length > 280 ? 'text-red-400' : 'text-slate-500'}`}>
               {editedBody.length}/280 characters
             </p>

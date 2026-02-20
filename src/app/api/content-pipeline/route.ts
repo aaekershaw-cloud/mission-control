@@ -129,8 +129,10 @@ export async function PUT(request: NextRequest) {
     const updateFields = [];
     const values = [];
     let paramIndex = 1;
+    const skipFields = ['platforms']; // not DB columns
     
     Object.keys(updates).forEach(key => {
+      if (skipFields.includes(key)) return;
       if (key === 'tags' || key === 'metadata') {
         updateFields.push(`${key} = $${paramIndex}`);
         values.push(JSON.stringify(updates[key]));
@@ -166,29 +168,40 @@ export async function PUT(request: NextRequest) {
         toStage: newStage 
       });
 
-      // Auto-trigger social posting if stage changed to 'published' and platform is social
-      if (newStage === 'published' && ['x', 'twitter', 'instagram', 'tiktok'].includes(currentItem.platform)) {
+      // Auto-trigger social posting if stage changed to 'published'
+      if (newStage === 'published') {
         const platformMap: Record<string, string> = { twitter: 'x', x: 'x', instagram: 'instagram', tiktok: 'tiktok' };
+        // Support multi-platform: use `platforms` array from request, fall back to single platform
+        const requestedPlatforms: string[] = updates.platforms || [currentItem.platform];
+        const socialPlatforms = requestedPlatforms
+          .map((p: string) => platformMap[p] || p)
+          .filter((p: string) => ['x', 'instagram', 'tiktok'].includes(p));
+        
+        if (socialPlatforms.length > 0) {
         try {
-          const response = await fetch(`http://localhost:${process.env.PORT || 3003}/api/social`, {
+          const cleanText = (currentItem.body || '')
+                .replace(/^(\s*#{1,4}\s.*\n+|\s*\*\*[^*]+\*\*\s*\n+|\s*---\s*\n+)+/, '')
+                .replace(/\*\*(.+?)\*\*/g, '$1')
+                .replace(/\*(.+?)\*/g, '$1')
+                .replace(/^#+\s*/gm, '')
+                .trim()
+                .substring(0, 2000);
+          const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+            ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` 
+            : `http://localhost:${process.env.PORT || 3003}`;
+          const response = await fetch(`${baseUrl}/api/social`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              text: currentItem.body
-                .replace(/^(\s*#{1,4}\s.*\n+|\s*\*\*[^*]+\*\*\s*\n+|\s*---\s*\n+)+/, '') // strip leading headers
-                .replace(/\*\*(.+?)\*\*/g, '$1') // strip bold markdown
-                .replace(/\*(.+?)\*/g, '$1') // strip italic markdown
-                .replace(/^#+\s*/gm, '') // strip # headers
-                .trim()
-                .substring(0, 2000),
-              platforms: [platformMap[currentItem.platform] || currentItem.platform],
+              text: cleanText,
+              platforms: socialPlatforms,
               postNow: true,
             }),
           });
           
           if (response.ok) {
-            await logActivity('social', `Auto-posted to ${currentItem.platform}: ${currentItem.title}`, currentItem.body.substring(0, 200), null, { 
-              platform: currentItem.platform, 
+            await logActivity('social', `Auto-posted to ${socialPlatforms.join(', ')}: ${currentItem.title}`, currentItem.body.substring(0, 200), null, { 
+              platforms: socialPlatforms, 
               itemId: id 
             });
           } else {
@@ -197,6 +210,7 @@ export async function PUT(request: NextRequest) {
         } catch (error) {
           console.error('Auto-social posting failed:', error);
         }
+        } // end socialPlatforms.length > 0
       }
     }
     
