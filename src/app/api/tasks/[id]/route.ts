@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
+import { notifyAgent, notifyTaskSubscribers } from '@/lib/notifications';
 
 export async function GET(
   _request: NextRequest,
@@ -138,6 +139,17 @@ export async function PUT(
     // Auto-start queue if task moved to todo
     if (newStatus === 'todo') {
       await triggerQueueIfNeeded();
+    }
+
+    // Notify assignee/subscribers on status changes (e.g., drag between kanban columns)
+    if (newStatus && newStatus !== oldStatus) {
+      const assigneeId = (body.assigneeId ?? existing.assignee_id) as string | null;
+      const sourceAgentId = 'system';
+      const msg = `📌 Task status updated: **${existing.title as string}** moved from **${String(oldStatus)}** to **${String(newStatus)}**.`;
+      if (assigneeId) {
+        await notifyAgent(assigneeId, msg, id, sourceAgentId);
+      }
+      await notifyTaskSubscribers(id, msg, sourceAgentId);
     }
 
     const row = await db.get(`

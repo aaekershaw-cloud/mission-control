@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { v4 as uuid } from 'uuid';
 import { logActivity } from '@/lib/activityLog';
+import { notifyAgent } from '@/lib/notifications';
 
 export async function GET(request: NextRequest) {
   try {
@@ -167,6 +168,16 @@ export async function PUT(request: NextRequest) {
         fromStage: oldStage, 
         toStage: newStage 
       });
+
+      // Notify assigned agent when card is moved between kanban stages
+      if (currentItem.assigned_agent_id) {
+        await notifyAgent(
+          currentItem.assigned_agent_id,
+          `🗂️ Content moved: **${currentItem.title}** from **${oldStage}** to **${newStage}**.`,
+          id,
+          'system'
+        );
+      }
 
       // Auto-trigger social posting if stage changed to 'published'
       if (newStage === 'published') {
