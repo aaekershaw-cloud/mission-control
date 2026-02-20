@@ -42,6 +42,7 @@ export default function TaskBoard() {
     tasksRemaining: 0,
   });
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Modal state
@@ -277,11 +278,15 @@ export default function TaskBoard() {
 
   const updateTaskStatus = async (taskId: string, status: TaskStatus) => {
     try {
-      await fetch(`/api/tasks/${taskId}`, {
+      const res = await fetch(`/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
+      if (res.ok) {
+        setToast('Moved task • Assignee/subscribers notified');
+        setTimeout(() => setToast(null), 2200);
+      }
     } catch (err) {
       console.error('Failed to update task:', err);
     }
@@ -373,6 +378,11 @@ export default function TaskBoard() {
 
   return (
     <>
+      {toast && (
+        <div className="mb-2 px-3 py-1.5 text-xs rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 inline-block">
+          {toast}
+        </div>
+      )}
       {/* Search, filter, templates bar */}
       <div className="flex items-center gap-2 mb-2 px-1 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -524,6 +534,7 @@ export default function TaskBoard() {
 
       {modalOpen && (
         <TaskDetailModal
+          key={selectedTask?.id ?? 'create'}
           task={selectedTask}
           agents={agents}
           onClose={handleModalClose}

@@ -58,6 +58,7 @@ export default function ContentPipelinePage() {
   const [createStage, setCreateStage] = useState<string>('idea');
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
   const [draggedItem, setDraggedItem] = useState<ContentItem | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -100,11 +101,15 @@ export default function ContentPipelinePage() {
 
   const updateContentStage = async (contentId: string, newStage: string) => {
     try {
-      await fetch('/api/content-pipeline', {
+      const res = await fetch('/api/content-pipeline', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: contentId, stage: newStage }),
       });
+      if (res.ok) {
+        setToast('Moved card • Assigned agent notified');
+        setTimeout(() => setToast(null), 2200);
+      }
       fetchContent();
     } catch (error) {
       console.error('Failed to update content stage:', error);
@@ -173,6 +178,11 @@ export default function ContentPipelinePage() {
 
   return (
     <div className="h-full flex flex-col">
+      {toast && (
+        <div className="mb-3 self-start px-3 py-1.5 text-xs rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+          {toast}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
