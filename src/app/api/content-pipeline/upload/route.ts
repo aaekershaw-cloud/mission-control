@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
+
+// On Railway, use persistent volume at /data/uploads
+// Locally, use public/uploads as before
+function getUploadDir() {
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    return '/data/uploads';
+  }
+  return join(process.cwd(), 'public', 'uploads');
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +39,11 @@ export async function POST(request: NextRequest) {
 
     const ext = file.name.split('.').pop() || 'jpg';
     const filename = `${uuid()}.${ext}`;
-    const uploadDir = join(process.cwd(), 'public', 'uploads');
+    const uploadDir = getUploadDir();
+    
+    // Ensure upload directory exists
+    await mkdir(uploadDir, { recursive: true });
+    
     const filePath = join(uploadDir, filename);
 
     const bytes = await file.arrayBuffer();
