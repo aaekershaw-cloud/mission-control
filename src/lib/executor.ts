@@ -559,9 +559,9 @@ You are part of a team. If a task requires skills outside your specialty, use th
     response: finalResponse,
   });
 
-  // Unlock dependent tasks: any task whose depends_on includes this taskId
-  // and all other dependencies are done or review → move from backlog → todo
+  // Unlock dependent tasks and check if queue needs more work
   await unlockDependentTasks(taskId);
+  await checkAndRefillQueue();
 
   // Auto-review the completed task (only for successful completion)
   try {
@@ -627,4 +627,42 @@ export async function unlockDependentTasks(completedTaskId: string) {
       await db.run("UPDATE tasks SET status = 'todo', updated_at = NOW() WHERE id = $1", [candidate.id]);
     }
   }
+}
+
+/**
+ * After tasks complete, check if the work queue is running dry.
+ * If fewer than 3 tasks are pending (todo/in_progress/review), auto-trigger the Producer to generate more.
+ * This keeps agents continuously working without waiting for the cron schedule.
+ */
+export async function checkAndRefillQueue() {
+  const db = getDb();
+
+  const pending = await db.get(
+    `SELECT COUNT(*) as c FROM tasks WHERE status IN ('todo', 'in_progress')`
+  ) as { c: number };
+
+  const inReview = await db.get(
+    `SELECT COUNT(*) as c FROM tasks WHERE status = 'review'`
+  ) as { c: number };
+
+  // If there's still plenty of work, don't bother
+  if (pending.c >= 3) return;
+
+  // If there are items in review, wait for human — don't pile on more
+  if (inReview.c >= 5) return;
+
+  // Check if Producer ran recently (within last 10 minutes) to avoid spam
+  const recentProducer = await db.get(
+    `SELECT COUNT(*) as c FROM tasks WHERE title LIKE '%Generate task batch%' AND created_at > NOW() - INTERVAL '10 minutes'`
+  ) as { c: number };
+  if (recentProducer.c > 0) return;
+
+  console.log(`[AutoRefill] Queue running low (${pending.c} pending, ${inReview.c} in review) — triggering Producer`);
+
+  fetch(`http://localhost:${process.env.PORT || 3003}/api/produce/auto`, {
+    method: 'POST',
+  }).then(r => r.json()).then(data => {
+    if (data.ok) console.log('[AutoRefill] Producer triggered — new tasks incoming');
+    else if (data.skipped) console.log('[AutoRefill] Producer skipped (already active or recently ran)');
+  }).catch(err => console.error('[AutoRefill] Failed:', err));
 }

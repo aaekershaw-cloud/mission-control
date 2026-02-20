@@ -1,7 +1,7 @@
 import { getDb } from '@/lib/db';
 import { autoReviewTask, AutoReviewResult } from '@/lib/autoReview';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
-import { unlockDependentTasks } from '@/lib/executor';
+import { unlockDependentTasks, checkAndRefillQueue } from '@/lib/executor';
 import { v4 as uuid } from 'uuid';
 import { logActivity } from '@/lib/activityLog';
 
@@ -72,9 +72,10 @@ export async function processAutoReview(taskId: string): Promise<void> {
         'system'
       );
 
-      // Unlock dependent tasks and trigger queue
+      // Unlock dependent tasks, trigger queue, and refill if low
       await unlockDependentTasks(taskId);
       triggerQueueIfNeeded();
+      await checkAndRefillQueue();
 
       // Auto-export approved content to website content directory
       try {
