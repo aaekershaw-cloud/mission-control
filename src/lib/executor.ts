@@ -158,6 +158,14 @@ Structure each caption as a separate section divided by ---. Include hashtags at
 You are part of a team. If a task requires skills outside your specialty, use the \`delegate_task\` tool to recruit another agent. Don't struggle with something another agent does better.
 `;
 
+  // Build caller context for tool calls (used by delegate_task etc.)
+  const callerContext = {
+    agentId: agentId,
+    agentName: task.agent_name as string,
+    agentAvatar: task.agent_avatar as string,
+    agentCodename: task.agent_codename as string,
+  };
+
   const systemPrompt = [
     task.agent_soul || '',
     task.agent_personality ? `\nPersonality: ${task.agent_personality}` : '',
@@ -279,7 +287,7 @@ You are part of a team. If a task requires skills outside your specialty, use th
         for (const block of data.content) {
           if (block.type === 'tool_use') {
             try {
-              const result = await executeTool(block.name, block.input);
+              const result = await executeTool(block.name, block.input, callerContext);
               toolResults.push({
                 type: 'tool_result' as const,
                 tool_use_id: block.id,
@@ -368,7 +376,7 @@ You are part of a team. If a task requires skills outside your specialty, use th
         // Execute tool calls
         for (const toolCall of message.tool_calls) {
           try {
-            const result = await executeTool(toolCall.function.name, JSON.parse(toolCall.function.arguments));
+            const result = await executeTool(toolCall.function.name, JSON.parse(toolCall.function.arguments), callerContext);
             messages.push({
               role: 'tool' as const,
               tool_call_id: toolCall.id,

@@ -771,11 +771,28 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
         return { error: `Agent "${params.agent_codename}" not found. Available: TABSMITH, LESSON_ARCHITECT, TRACKMASTER, THEORYBOT, COACH, FEEDBACK_LOOP, SEOHAWK, COMMUNITY_PULSE, BIZOPS` };
       }
 
+      // Get the requesting agent from caller context
+      const caller = params._callerContext as { agentId: string; agentName: string; agentAvatar: string; agentCodename: string } | undefined;
+      const fromName = caller?.agentName || 'Another agent';
+      const fromAvatar = caller?.agentAvatar || '🤖';
+      const fromCodename = caller?.agentCodename || 'unknown';
+      const fromId = caller?.agentId || 'system';
+
+      // Embed delegation context in the task description
+      const enrichedDesc = `**📨 Delegated by ${fromName} (@${fromCodename})**\n\n${params.description}`;
+
       const taskId = uuid();
       await db.run(`
         INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, created_at, updated_at)
         VALUES ($1, $2, $3, 'todo', $4, $5, '["delegated"]', NOW(), NOW())
-      `, [taskId, params.title, params.description, params.priority || 'medium', agent.id]);
+      `, [taskId, params.title, enrichedDesc, params.priority || 'medium', agent.id]);
+
+      // Post comms message so both agents and humans can see the recruitment
+      const msgId = uuid();
+      await db.run(
+        `INSERT INTO messages (id, from_agent_id, to_agent_id, content, type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [msgId, fromId, agent.id, `📨 **${fromName}** recruited **${agent.name}**: ${params.title}`, 'delegation']
+      );
 
       // Trigger the queue so it picks up immediately
       const { triggerQueueIfNeeded } = await import('@/lib/autoQueue');
@@ -786,7 +803,8 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
         task_id: taskId,
         assigned_to: agent.name,
         codename: agent.codename,
-        message: `Task "${params.title}" created and assigned to ${agent.name}. It will execute automatically.`
+        delegated_by: fromName,
+        message: `Task "${params.title}" created and assigned to ${agent.name}. ${agent.name} has been notified. It will execute automatically.`
       };
     }
   },

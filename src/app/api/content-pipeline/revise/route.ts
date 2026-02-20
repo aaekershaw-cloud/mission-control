@@ -76,6 +76,12 @@ Please revise the content based on the feedback above. Return ONLY the revised c
 
   const agentCodename = item.agent_codename || 'CONTENTMILL';
   const tools = getToolsForAgent(agentCodename);
+  const callerContext = {
+    agentId: item.assigned_agent_id || 'system',
+    agentName: item.agent_name || 'ContentMill',
+    agentAvatar: item.agent_avatar || '📝',
+    agentCodename,
+  };
 
   try {
     let response = '';
@@ -126,7 +132,7 @@ Please revise the content based on the feedback above. Return ONLY the revised c
         const toolResults: any[] = [];
         for (const toolBlock of toolUseBlocks) {
           try {
-            const result = await executeTool(toolBlock.name, toolBlock.input);
+            const result = await executeTool(toolBlock.name, toolBlock.input, callerContext);
             // Capture image URL if generate_image was used
             if (toolBlock.name === 'generate_image' && result?.url) {
               newImageUrl = result.url;
@@ -174,7 +180,7 @@ Please revise the content based on the feedback above. Return ONLY the revised c
         for (const tc of choice.message.tool_calls) {
           try {
             const params = JSON.parse(tc.function.arguments);
-            const result = await executeTool(tc.function.name, params);
+            const result = await executeTool(tc.function.name, params, callerContext);
             if (tc.function.name === 'generate_image' && result?.url) newImageUrl = result.url;
             messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
           } catch (err: any) {

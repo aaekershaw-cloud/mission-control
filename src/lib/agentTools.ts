@@ -47,13 +47,17 @@ export function getToolsForAgent(codename: string): { claude: any[]; openai: any
 /**
  * Execute a tool by name with given parameters
  */
-export async function executeTool(name: string, params: any): Promise<any> {
+export async function executeTool(name: string, params: any, callerContext?: { agentId: string; agentName: string; agentAvatar: string; agentCodename: string }): Promise<any> {
   const tool = TOOLS.find(t => t.name === name);
   if (!tool) {
     throw new Error(`Tool "${name}" not found`);
   }
   
   try {
+    // Inject caller context for tools that need it (e.g. delegate_task)
+    if (callerContext) {
+      params = { ...params, _callerContext: callerContext };
+    }
     return await tool.execute(params);
   } catch (error: any) {
     throw new Error(`Tool "${name}" execution failed: ${error.message}`);
