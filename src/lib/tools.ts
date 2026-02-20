@@ -728,6 +728,53 @@ export const TOOLS: Tool[] = [
       };
     }
   },
+  // j) delegate_task — recruit another agent
+  {
+    name: 'delegate_task',
+    description: 'Create a task and assign it to another agent. Use this to recruit specialists — e.g. ask TabSmith to write tab, TheoryBot to explain theory, SEOHawk to optimize for search, TrackMaster for backing tracks. The delegated task runs asynchronously and returns the result.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Task title — be specific about what you need.' },
+        description: { type: 'string', description: 'Detailed instructions for the agent. Include context, requirements, and expected output format.' },
+        agent_codename: { type: 'string', description: 'Codename of the agent to assign. Available: TABSMITH, LESSON_ARCHITECT, TRACKMASTER, THEORYBOT, COACH, FEEDBACK_LOOP, SEOHAWK, COMMUNITY_PULSE, BIZOPS' },
+        priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'], description: 'Task priority (default: medium)' },
+      },
+      required: ['title', 'description', 'agent_codename']
+    },
+    execute: async (params: { title: string; description: string; agent_codename: string; priority?: string }) => {
+      const { v4: uuid } = await import('uuid');
+      const db = getDb();
+
+      // Find the agent by codename
+      const agent = await db.get(
+        `SELECT id, name, codename FROM agents WHERE UPPER(codename) = $1`,
+        [params.agent_codename.toUpperCase()]
+      ) as Record<string, string> | undefined;
+
+      if (!agent) {
+        return { error: `Agent "${params.agent_codename}" not found. Available: TABSMITH, LESSON_ARCHITECT, TRACKMASTER, THEORYBOT, COACH, FEEDBACK_LOOP, SEOHAWK, COMMUNITY_PULSE, BIZOPS` };
+      }
+
+      const taskId = uuid();
+      await db.run(`
+        INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, created_at, updated_at)
+        VALUES ($1, $2, $3, 'todo', $4, $5, '["delegated"]', NOW(), NOW())
+      `, [taskId, params.title, params.description, params.priority || 'medium', agent.id]);
+
+      // Trigger the queue so it picks up immediately
+      const { triggerQueueIfNeeded } = await import('@/lib/autoQueue');
+      triggerQueueIfNeeded();
+
+      return {
+        success: true,
+        task_id: taskId,
+        assigned_to: agent.name,
+        codename: agent.codename,
+        message: `Task "${params.title}" created and assigned to ${agent.name}. It will execute automatically.`
+      };
+    }
+  },
 ];
 
 // Helper function to get scale description (used by music_theory tool)

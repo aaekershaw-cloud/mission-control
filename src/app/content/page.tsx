@@ -706,7 +706,17 @@ function ContentDetailModal({
       return;
     }
     setActionInProgress('revise');
-    await updateContent({ stage: 'writing', notes: reviseNotes || 'Needs revision' });
+    // Trigger agent revision — moves to writing, runs agent, auto-moves back to review
+    try {
+      await fetch('/api/content-pipeline/revise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: content.id, notes: reviseNotes || 'Needs revision' }),
+      });
+    } catch (err) {
+      console.error('Failed to trigger revision:', err);
+    }
+    onUpdate();
     setActionInProgress('');
     onClose();
   };
