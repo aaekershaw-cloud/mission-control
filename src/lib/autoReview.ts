@@ -190,12 +190,44 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
     || strategicCodenames.includes((task.agent_codename as string || '').toUpperCase());
 
   if (isStrategic) {
+    // Extract agent mentions from the response to show in review
+    const allCodenames = ['TABSMITH', 'ARCHITECT', 'TRACKMASTER', 'THEORYBOT', 'COACH', 'FEEDBACK', 'CONTENTMILL', 'SEOHAWK', 'COMMUNITY', 'BIZOPS', 'PRODUCER'];
+    const agentNameMap: Record<string, string> = {
+      'TABSMITH': 'TabSmith', 'ARCHITECT': 'LessonArchitect', 'TRACKMASTER': 'TrackMaster',
+      'THEORYBOT': 'TheoryBot', 'COACH': 'CoachAI', 'FEEDBACK': 'FeedbackLoop',
+      'CONTENTMILL': 'ContentMill', 'SEOHAWK': 'SEOHawk', 'COMMUNITY': 'CommunityPulse',
+      'BIZOPS': 'BizOps', 'PRODUCER': 'Producer',
+    };
+    const responseUpper = response.toUpperCase();
+    const mentionedAgents = allCodenames.filter(code => {
+      // Match codename or friendly name in the response
+      const name = agentNameMap[code] || '';
+      return responseUpper.includes(code) || response.includes(name) || response.toLowerCase().includes(name.toLowerCase());
+    }).map(code => ({ codename: code, name: agentNameMap[code] || code }));
+
+    // Store mentioned agents in the task metadata for the review UI
+    if (mentionedAgents.length > 0) {
+      try {
+        await db.run(
+          `UPDATE tasks SET metadata = $1, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ suggestedAgents: mentionedAgents }), taskId]
+        );
+      } catch (e) {
+        // metadata column might not exist — non-critical
+        console.error('[AutoReview] Failed to store suggested agents:', e);
+      }
+    }
+
+    const agentList = mentionedAgents.length > 0
+      ? ` Suggested agents: ${mentionedAgents.map(a => a.name).join(', ')}`
+      : '';
+
     checks.push({
       name: 'Strategic Content',
       passed: false,
-      detail: 'Strategy/business recommendations require human review before implementation'
+      detail: `Strategy/business recommendations require human review before implementation.${agentList}`
     });
-    reasons.push('Strategic content — needs human approval before agents can act on it');
+    reasons.push(`Strategic content — needs human approval before agents can act on it.${agentList}`);
     return { decision: 'flag', reasons, checks, repairedContent };
   }
 

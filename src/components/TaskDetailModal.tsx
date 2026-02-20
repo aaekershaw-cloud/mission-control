@@ -85,6 +85,9 @@ export default function TaskDetailModal({
     }
   }, [task, createWithStatus]);
 
+  const [suggestedAgents, setSuggestedAgents] = useState<{ codename: string; name: string }[]>([]);
+  const [autoReviewInfo, setAutoReviewInfo] = useState<{ decision: string; reasons: string[]; checks: { name: string; passed: boolean; detail?: string }[] } | null>(null);
+
   // Fetch review result when task is in review status
   useEffect(() => {
     if (task?.status === 'review') {
@@ -92,10 +95,18 @@ export default function TaskDetailModal({
         .then((r) => r.json())
         .then((data) => {
           if (data.result) setReviewResult(data.result);
+          if (data.autoReview) setAutoReviewInfo(data.autoReview);
+          // Extract suggested agents from task metadata
+          try {
+            const meta = typeof data.task?.metadata === 'string' ? JSON.parse(data.task.metadata) : data.task?.metadata;
+            if (meta?.suggestedAgents) setSuggestedAgents(meta.suggestedAgents);
+          } catch {}
         })
         .catch(console.error);
     } else {
       setReviewResult(null);
+      setSuggestedAgents([]);
+      setAutoReviewInfo(null);
     }
     setReviewAction(null);
     setReviewFeedback('');
@@ -392,6 +403,22 @@ export default function TaskDetailModal({
                 ) : (
                   <div className="glass-sm p-4 text-sm text-slate-400 italic">
                     No agent output found — result may not have been migrated. You can still approve, revise, or reject.
+                  </div>
+                )}
+
+                {/* Suggested agents for implementation */}
+                {suggestedAgents.length > 0 && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <p className="text-xs text-amber-400 font-medium mb-2">🤝 Agents suggested for implementation:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {suggestedAgents.map(a => (
+                        <span key={a.codename} className="inline-flex items-center gap-1 px-2 py-1 bg-amber-500/15 border border-amber-500/30 rounded-lg text-xs text-amber-300 font-medium">
+                          {a.name}
+                          <span className="text-amber-500/50">@{a.codename}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1.5">If you approve, these agents will be recruited to implement the recommendations.</p>
                   </div>
                 )}
 
