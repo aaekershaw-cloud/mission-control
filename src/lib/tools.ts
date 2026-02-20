@@ -748,13 +748,15 @@ export const TOOLS: Tool[] = [
       const { prompt, duration = 15, model_version = 'stereo-melody-large' } = params;
       const clampedDuration = Math.min(Math.max(duration, 5), 30);
 
-      const createRes = await fetch('https://api.replicate.com/v1/models/meta/musicgen/predictions', {
+      const MUSICGEN_VERSION = '671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb';
+      const createRes = await fetch('https://api.replicate.com/v1/predictions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          version: MUSICGEN_VERSION,
           input: {
             prompt,
             duration: clampedDuration,
