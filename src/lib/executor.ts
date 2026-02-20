@@ -523,6 +523,33 @@ You are part of a team. If a task requires skills outside your specialty, use th
   const summary = `✅ Completed task "${task.title}" in ${(durationMs / 1000).toFixed(1)}s using ${tokensUsed} tokens ($${costUsd.toFixed(4)})`;
   await db.run("INSERT INTO messages (id, from_agent_id, content, type) VALUES ($1, $2, $3, 'system')", [msgId, agentId, summary]);
 
+  // If this was a delegated task, report back to the recruiter
+  const completedTaskTags = (() => { try { return JSON.parse(task.tags as string || '[]'); } catch { return []; } })() as string[];
+  if (completedTaskTags.includes('delegated')) {
+    // Extract the recruiter from the description ("📨 Delegated by AgentName (@CODENAME)")
+    const delegatedByMatch = (task.description as string || '').match(/Delegated by (.+?) \(@(\w+)\)/);
+    if (delegatedByMatch) {
+      const recruiterCodename = delegatedByMatch[2];
+      const recruiterAgent = await db.get(
+        `SELECT id, name FROM agents WHERE UPPER(codename) = $1`,
+        [recruiterCodename.toUpperCase()]
+      ) as Record<string, string> | undefined;
+
+      if (recruiterAgent) {
+        // Truncate the response to a useful summary
+        const responseSummary = finalResponse.length > 500
+          ? finalResponse.substring(0, 500) + '...'
+          : finalResponse;
+        const reportMsg = `✅ **${task.agent_name}** finished the task **${recruiterAgent.name}** delegated: "${task.title}"\n\n**Result:**\n${responseSummary}`;
+        const reportId = uuid();
+        await db.run(
+          "INSERT INTO messages (id, from_agent_id, to_agent_id, content, type) VALUES ($1, $2, $3, $4, 'delegation_result')",
+          [reportId, agentId, recruiterAgent.id, reportMsg]
+        );
+      }
+    }
+  }
+
   // Notify for review
   notifyReviewReady({
     taskId,
