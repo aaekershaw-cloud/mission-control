@@ -1,6 +1,27 @@
 import { getDb } from '@/lib/db';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { v4 as uuid } from 'uuid';
+
+/**
+ * Download a remote file and save it to public/uploads.
+ * Returns the local /uploads/... path that won't expire.
+ */
+async function persistFile(remoteUrl: string, ext: string = 'jpg'): Promise<string> {
+  try {
+    const res = await fetch(remoteUrl);
+    if (!res.ok) throw new Error(`Failed to download: ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const filename = `${uuid()}.${ext}`;
+    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    await fs.mkdir(uploadsDir, { recursive: true });
+    await fs.writeFile(path.join(uploadsDir, filename), buffer);
+    return `/uploads/${filename}`;
+  } catch (e) {
+    console.error('[persistFile] Failed:', e);
+    return remoteUrl; // fall back to remote URL
+  }
+}
 
 export interface Tool {
   name: string;
@@ -392,13 +413,12 @@ export const TOOLS: Tool[] = [
         
         const conditions = [];
         const values = [];
-        
+        let paramIndex = 1;
+
         if (status) {
-          conditions.push('t.status = ?');
+          conditions.push(`t.status = $${paramIndex++}`);
           values.push(status);
         }
-        
-        let paramIndex = 1;
         if (agentId) {
           conditions.push(`t.assignee_id = $${paramIndex++}`);
           values.push(agentId);
@@ -667,7 +687,7 @@ export const TOOLS: Tool[] = [
   // i) generate_image
   {
     name: 'generate_image',
-    description: 'Generate an image using Flux (via Replicate API). Returns the image URL. Use for social media posts, thumbnails, blog headers, etc. Write a detailed visual prompt — specify style, composition, colors, lighting. Do NOT include text/words in prompts (AI image gen renders text poorly). FretCoach brand colors: amber #f59e0b on dark #0a0a0f.',
+    description: 'Generate an image using Flux (via Replicate API). Returns the image URL. Use for social media posts, thumbnails, blog headers, etc. Write a detailed visual prompt — specify style, composition, colors, lighting. Do NOT include text/words in prompts (AI image gen renders text poorly). FretCoach brand colors: amber #f59e0b on dark #0a0a0f. IMPORTANT: If the image contains a person, ALWAYS follow up with face_swap to use Andrew\'s face.',
     parameters: {
       type: 'object',
       properties: {
@@ -716,19 +736,137 @@ export const TOOLS: Tool[] = [
         throw new Error(`Image generation failed: ${prediction.error || 'Unknown error'}`);
       }
 
-      const imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+      let imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+
+      // Auto face-swap if prompt describes a person and FOUNDER_FACE_URL is set
+      const founderFace = process.env.FOUNDER_FACE_URL;
+      const personKeywords = /\b(person|man|woman|guitarist|player|guy|musician|human|portrait|selfie|founder|andrew)\b/i;
+      if (founderFace && personKeywords.test(prompt)) {
+        try {
+          console.log('[generate_image] Auto-triggering face swap...');
+          const swapRes = await fetch('https://api.replicate.com/v1/predictions', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              version: 'd5900f9ebed33e7ae08a07f17e0d98b4ebc68ab9528a70462afc3899cfe23bab',
+              input: { source_image: founderFace, target_image: imageUrl, det_thresh: 0.5, cache_days: 10 }
+            })
+          });
+          if (swapRes.ok) {
+            let swapPred = await swapRes.json();
+            const swapStart = Date.now();
+            while (swapPred.status !== 'succeeded' && swapPred.status !== 'failed') {
+              if (Date.now() - swapStart > 90000) break;
+              await new Promise(r => setTimeout(r, 2000));
+              const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${swapPred.id}`, {
+                headers: { 'Authorization': `Bearer ${apiToken}` }
+              });
+              swapPred = await pollRes.json();
+            }
+            if (swapPred.status === 'succeeded') {
+              const swapOutput = swapPred.output;
+              const swapUrl = typeof swapOutput === 'object' && swapOutput?.image ? swapOutput.image : swapOutput;
+              if (swapUrl) {
+                console.log('[generate_image] Face swap succeeded');
+                imageUrl = swapUrl;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[generate_image] Face swap failed (continuing with original):', e);
+        }
+      }
+
+      // Persist image locally so it doesn't expire
+      const localUrl = await persistFile(imageUrl, output_format);
 
       return {
-        url: imageUrl,
+        url: localUrl,
         prompt,
         aspect_ratio,
         model: 'flux-schnell',
         prediction_id: prediction.id,
-        cost_estimate: '$0.003'
+        cost_estimate: founderFace && personKeywords.test(prompt) ? '$0.013' : '$0.003',
+        face_swapped: founderFace && personKeywords.test(prompt) ? true : false
       };
     }
   },
-  // j) generate_backing_track — MusicGen via Replicate
+  // j) face_swap — swap face in generated image with Andrew's face
+  {
+    name: 'face_swap',
+    description: 'Swap the face in an image with Andrew\'s face (the FretCoach founder). Use this AFTER generate_image when the generated image contains a person. Pass the generated image URL as target_image. The source (Andrew\'s face) is automatic.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target_image: { type: 'string', description: 'URL of the image containing the face to replace (e.g. from generate_image output).' },
+      },
+      required: ['target_image']
+    },
+    execute: async (params: { target_image: string }) => {
+      const apiToken = process.env.REPLICATE_API_TOKEN;
+      if (!apiToken) throw new Error('REPLICATE_API_TOKEN not set');
+
+      // Andrew's reference headshot — stored locally, served via uploads API
+      const sourceImage = process.env.FOUNDER_FACE_URL;
+      if (!sourceImage) throw new Error('FOUNDER_FACE_URL not set — upload a reference headshot of Andrew and set the env var.');
+
+      const createRes = await fetch('https://api.replicate.com/v1/predictions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: 'd5900f9ebed33e7ae08a07f17e0d98b4ebc68ab9528a70462afc3899cfe23bab',
+          input: {
+            source_image: sourceImage,
+            target_image: params.target_image,
+            det_thresh: 0.5,
+            cache_days: 10,
+          }
+        })
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.text();
+        throw new Error(`Replicate face_swap API error ${createRes.status}: ${err}`);
+      }
+
+      let prediction = await createRes.json();
+
+      const maxWait = 90000;
+      const start = Date.now();
+      while (prediction.status !== 'succeeded' && prediction.status !== 'failed') {
+        if (Date.now() - start > maxWait) throw new Error('Face swap timed out (90s)');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
+          headers: { 'Authorization': `Bearer ${apiToken}` }
+        });
+        prediction = await pollRes.json();
+      }
+
+      if (prediction.status === 'failed') {
+        throw new Error(`Face swap failed: ${prediction.error || 'Unknown error'}`);
+      }
+
+      // yan-ops/face_swap returns {code, image, msg, status}
+      const output = prediction.output;
+      const outputUrl = typeof output === 'object' && output?.image
+        ? output.image
+        : (Array.isArray(output) ? output[0] : output);
+
+      // Persist locally
+      const localUrl = await persistFile(outputUrl, 'jpg');
+
+      return {
+        url: localUrl,
+        prediction_id: prediction.id,
+        cost_estimate: '$0.01',
+        note: 'Face swapped with Andrew\'s reference photo'
+      };
+    }
+  },
+  // k) generate_backing_track — MusicGen via Replicate
   {
     name: 'generate_backing_track',
     description: 'Generate a backing track using MusicGen (via Replicate API). Returns an audio URL (.wav). Describe the musical style, key, tempo, instruments, and feel. Examples: "12-bar blues shuffle in A minor, 120 BPM, electric guitar and bass", "Slow jazz ballad in Bb major, brushed drums, upright bass, 80 BPM". Tracks are ~15-30 seconds by default.',
@@ -792,8 +930,11 @@ export const TOOLS: Tool[] = [
 
       const audioUrl = prediction.output;
 
+      // Persist audio locally
+      const localUrl = await persistFile(audioUrl, 'wav');
+
       return {
-        url: audioUrl,
+        url: localUrl,
         prompt,
         duration: clampedDuration,
         model: `musicgen-${model_version}`,

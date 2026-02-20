@@ -120,17 +120,39 @@ export async function POST(
     }
     await postCommsMessage(task.assignee_id || SYSTEM_AGENT_ID, approveContent, 'system');
 
-    // Auto-export approved content to website content directory
-    fetch('http://localhost:3003/api/export', {
+    // Send to Hal for content review before staging export
+    // Hal reviews, corrects errors, then triggers the export
+    const taskResult = await db.get('SELECT response FROM task_results WHERE task_id = $1', [taskId]);
+    const taskContent = taskResult?.response || task.description || '';
+    
+    // Determine content category from tags
+    const taskTags: string[] = (() => {
+      try {
+        const raw = task.tags;
+        if (Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') return JSON.parse(raw);
+        return [];
+      } catch { return []; }
+    })();
+    const category = taskTags.includes('lick') || taskTags.includes('licks') ? 'licks'
+      : taskTags.includes('course') || taskTags.includes('lesson') ? 'courses'
+      : taskTags.includes('blog') ? 'blog' : 'courses';
+    
+    fetch('http://localhost:3003/api/hal-review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId }),
+      body: JSON.stringify({
+        taskId,
+        taskTitle: task.title,
+        agentName: task.agent_name || task.assignee_name || 'unknown',
+        category,
+        content: taskContent,
+      }),
     }).then(r => r.json()).then(data => {
-      if (data.exported > 0) console.log(`[Export] Exported ${data.exported} content file(s) for "${task.title}"`);
-    }).catch(err => console.error('[Export] Failed:', err));
+      console.log(`[HalReview] Review request sent for "${task.title}":`, data.message || data.error);
+    }).catch(err => console.error('[HalReview] Failed to send review request:', err));
 
     // Auto-post to social media if this is a social content task
-    const taskTags = (() => { try { return task.tags || []; } catch { return []; } })() as string[];
     const taskTitle = (task.title || '').toLowerCase();
     const isSocial = taskTags.some((t: string) => ['social', 'instagram', 'twitter', 'x', 'tiktok', 'caption'].includes(t.toLowerCase()))
       || taskTitle.includes('instagram') || taskTitle.includes('caption') || taskTitle.includes('social') || taskTitle.includes('tweet');
