@@ -396,6 +396,17 @@ export default function TaskDetailModal({
                     <div className="glass-sm p-4 text-sm text-slate-300 whitespace-pre-wrap max-h-80 overflow-y-auto leading-relaxed cursor-text select-text">
                       {reviewResult.response}
                     </div>
+                    {/* Audio player for backing tracks */}
+                    {(() => {
+                      const audioMatch = reviewResult.response.match(/(?:url["\s:]+|https?:\/\/\S+?)(\/?uploads\/[^\s"')\]]+\.wav)/i)
+                        || reviewResult.response.match(/(\/uploads\/[^\s"')\]]+\.(?:wav|mp3|ogg))/i);
+                      return audioMatch ? (
+                        <div className="mt-3 p-3 bg-white/5 border border-white/10 rounded-lg">
+                          <label className="text-xs text-amber-400 uppercase tracking-wider font-medium mb-2 block">🎵 Backing Track</label>
+                          <audio controls className="w-full" src={audioMatch[1]} />
+                        </div>
+                      ) : null;
+                    })()}
                     <div className="text-[10px] text-slate-500">
                       {reviewResult.agent_avatar} {reviewResult.agent_name} · {reviewResult.tokens_used} tokens · {(reviewResult.duration_ms / 1000).toFixed(1)}s
                     </div>

@@ -278,6 +278,10 @@ export default function ContentPipelinePage() {
                         key={item.id}
                         content={item}
                         onClick={() => setSelectedContent(item)}
+                        onDelete={async (id) => {
+                          await fetch(`/api/content-pipeline?id=${id}`, { method: 'DELETE' });
+                          fetchContent();
+                        }}
                         platforms={PLATFORMS}
                       />
                     ))}
@@ -404,11 +408,13 @@ function ContentCard({
   content,
   platforms,
   onClick,
+  onDelete,
   isDragging = false
 }: {
   content: ContentItem;
   platforms: typeof PLATFORMS;
   onClick?: () => void;
+  onDelete?: (id: string) => void;
   isDragging?: boolean;
 }) {
   const platform = platforms.find(p => p.id === content.platform) || platforms[0];
@@ -416,10 +422,20 @@ function ContentCard({
   return (
     <div
       onClick={onClick}
-      className={`p-4 bg-white/5 border border-white/10 rounded-xl cursor-pointer transition-all hover:border-white/20 ${
+      className={`p-4 bg-white/5 border border-white/10 rounded-xl cursor-pointer transition-all hover:border-white/20 group relative ${
         isDragging ? 'opacity-50 rotate-2' : ''
       }`}
     >
+      {/* Delete button */}
+      {onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); if (confirm('Delete this content?')) onDelete(content.id); }}
+          className="absolute top-2 right-2 p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all z-10"
+          title="Delete"
+        >
+          <X size={14} />
+        </button>
+      )}
       {/* Thumbnail */}
       {content.thumbnail_url && (
         /\.(mp4|mov|webm|avi)$/i.test(content.thumbnail_url) ? (
@@ -677,14 +693,41 @@ function ContentDetailModal({
 
   const handleApprove = async () => {
     setActionInProgress('approve');
-    await updateContent({ body: editedBody, platform: selectedPlatforms[0], platforms: selectedPlatforms, stage: 'scheduled' });
+    try {
+      await updateContent({ body: editedBody, platform: selectedPlatforms[0], platforms: selectedPlatforms, stage: 'scheduled' });
+    } catch (err) {
+      alert(`Approve failed: ${err}`);
+      setActionInProgress('');
+      return;
+    }
     setActionInProgress('');
     onClose();
   };
 
   const handlePublish = async () => {
     setActionInProgress('publish');
-    await updateContent({ body: editedBody, platform: selectedPlatforms[0], platforms: selectedPlatforms, stage: 'published' });
+    try {
+      const res = await fetch('/api/content-pipeline', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: content.id, body: editedBody, platform: selectedPlatforms[0], platforms: selectedPlatforms, stage: 'published' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Publish failed: ${err.error || res.statusText}`);
+        setActionInProgress('');
+        return;
+      }
+      const result = await res.json();
+      if (!result.success) {
+        alert(`Publish error: ${JSON.stringify(result)}`);
+      }
+    } catch (err) {
+      alert(`Publish failed: ${err}`);
+      setActionInProgress('');
+      return;
+    }
+    onUpdate();
     setActionInProgress('');
     onClose();
   };
@@ -708,13 +751,22 @@ function ContentDetailModal({
     setActionInProgress('revise');
     // Trigger agent revision — moves to writing, runs agent, auto-moves back to review
     try {
-      await fetch('/api/content-pipeline/revise', {
+      const res = await fetch('/api/content-pipeline/revise', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: content.id, notes: reviseNotes || 'Needs revision' }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(`Revision failed: ${data.error || res.statusText}`);
+        setActionInProgress('');
+        return;
+      }
     } catch (err) {
       console.error('Failed to trigger revision:', err);
+      alert('Failed to trigger revision — check console');
+      setActionInProgress('');
+      return;
     }
     onUpdate();
     setActionInProgress('');
@@ -884,6 +936,16 @@ function ContentDetailModal({
               className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
             >
               {saving ? 'Saving...' : '💾 Save Edits'}
+            </button>
+          )}
+          {/* Delete button — always available */}
+          {content.stage !== 'review' && (
+            <button
+              onClick={handleReject}
+              disabled={!!actionInProgress}
+              className="px-4 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-all disabled:opacity-50 text-sm"
+            >
+              {actionInProgress === 'reject' ? '...' : '🗑️'}
             </button>
           )}
         </div>

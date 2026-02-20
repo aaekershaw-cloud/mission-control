@@ -177,9 +177,10 @@ export async function PUT(request: NextRequest) {
           .map((p: string) => platformMap[p] || p)
           .filter((p: string) => ['x', 'instagram', 'tiktok'].includes(p));
         
+        console.log(`[ContentPipeline] Publishing to: ${socialPlatforms.join(', ')} | platforms from request: ${JSON.stringify(updates.platforms)} | item platform: ${currentItem.platform}`);
         if (socialPlatforms.length > 0) {
         try {
-          const cleanText = (currentItem.body || '')
+          const cleanText = (updates.body || currentItem.body || '')
                 .replace(/^(\s*#{1,4}\s.*\n+|\s*\*\*[^*]+\*\*\s*\n+|\s*---\s*\n+)+/, '')
                 .replace(/\*\*(.+?)\*\*/g, '$1')
                 .replace(/\*(.+?)\*/g, '$1')
@@ -189,6 +190,10 @@ export async function PUT(request: NextRequest) {
           const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
             ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` 
             : `http://localhost:${process.env.PORT || 3003}`;
+          // Include image if available
+          const imageUrl = currentItem.thumbnail_url || null;
+          const mediaPayload = imageUrl ? { imageUrl } : undefined;
+          
           const response = await fetch(`${baseUrl}/api/social`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -196,16 +201,20 @@ export async function PUT(request: NextRequest) {
               text: cleanText,
               platforms: socialPlatforms,
               postNow: true,
+              media: mediaPayload,
             }),
           });
           
-          if (response.ok) {
-            await logActivity('social', `Auto-posted to ${socialPlatforms.join(', ')}: ${currentItem.title}`, currentItem.body.substring(0, 200), null, { 
+          const socialResult = await response.json().catch(() => ({}));
+          console.log(`[ContentPipeline] Social post result:`, JSON.stringify(socialResult));
+          if (response.ok && socialResult.ok) {
+            await logActivity('social', `Auto-posted to ${socialPlatforms.join(', ')}: ${currentItem.title}`, (updates.body || currentItem.body || '').substring(0, 200), null, { 
               platforms: socialPlatforms, 
-              itemId: id 
+              itemId: id,
+              results: socialResult.results,
             });
           } else {
-            console.error('Auto-social posting failed:', await response.text());
+            console.error('Auto-social posting failed:', JSON.stringify(socialResult));
           }
         } catch (error) {
           console.error('Auto-social posting failed:', error);

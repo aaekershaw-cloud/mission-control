@@ -27,7 +27,7 @@ function tryParseJson(response: string): unknown {
 
 function categorizeContent(task: Record<string, unknown>, parsed: unknown): string {
   const title = ((task.title as string) || '').toLowerCase();
-  const tags = (() => { try { return JSON.parse((task.tags as string) || '[]'); } catch { return []; } })() as string[];
+  const tags: string[] = (() => { try { const raw = task.tags; if (Array.isArray(raw)) return raw; if (typeof raw === 'string') return JSON.parse(raw); return []; } catch { return []; } })();
 
   // Social content goes to content pipeline, not staging
   if (tags.includes('social') || tags.includes('instagram') || tags.includes('twitter') || tags.includes('tiktok') ||

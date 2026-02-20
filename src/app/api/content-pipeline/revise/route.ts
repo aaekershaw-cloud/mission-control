@@ -102,7 +102,8 @@ Please revise the content based on the feedback above. Return ONLY the revised c
         };
         if (tools.claude.length > 0) requestBody.tools = tools.claude;
 
-        const res = await fetch(`${provider.base_url || 'https://api.anthropic.com'}/v1/messages`, {
+        const claudeBase = (provider.base_url || 'https://api.anthropic.com').replace(/\/v1\/?$/, '');
+        const res = await fetch(`${claudeBase}/v1/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -158,7 +159,8 @@ Please revise the content based on the feedback above. Return ONLY the revised c
         const requestBody: any = { model: provider.model, messages, max_tokens: provider.max_tokens || 4096 };
         if (tools.openai.length > 0) requestBody.tools = tools.openai;
 
-        const res = await fetch(`${provider.base_url}/v1/chat/completions`, {
+        const baseUrl = provider.base_url.replace(/\/v1\/?$/, '');
+        const res = await fetch(`${baseUrl}/v1/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${provider.api_key}` },
           body: JSON.stringify(requestBody),
@@ -190,12 +192,28 @@ Please revise the content based on the feedback above. Return ONLY the revised c
       }
     }
 
-    // Clean up response — strip markdown fences, headers, etc.
-    const cleanBody = response
-      .replace(/^```[\s\S]*?```$/gm, (m) => m.replace(/^```\w*\n?/, '').replace(/\n?```$/, ''))
+    // Clean up response — strip markdown fences, headers, extract caption from JSON
+    let cleanBody = response
+      .replace(/^```\w*\s*\n?/gm, '').replace(/\n?```\s*$/gm, '')
       .replace(/^#+\s*/gm, '')
       .replace(/^\*\*Revised.*?\*\*\s*\n*/i, '')
       .trim();
+
+    // If the agent returned JSON, extract the caption text
+    try {
+      const parsed = JSON.parse(cleanBody);
+      if (Array.isArray(parsed) && parsed[0]?.caption) {
+        cleanBody = parsed.map((p: any) => p.caption).join('\n\n---\n\n');
+      } else if (parsed?.caption) {
+        cleanBody = parsed.caption;
+      } else if (parsed?.text) {
+        cleanBody = parsed.text;
+      } else if (parsed?.content) {
+        cleanBody = parsed.content;
+      }
+    } catch {
+      // Not JSON — already clean text
+    }
 
     // Update the content pipeline item
     const updates: any = {
