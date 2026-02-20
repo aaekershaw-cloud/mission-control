@@ -735,14 +735,14 @@ export const TOOLS: Tool[] = [
 
 AGENT ROSTER (recruit by codename):
 • TABSMITH — Guitar tab notation expert. Writes accurate, well-formatted tablature.
-• LESSON_ARCHITECT — Builds structured lessons with learning objectives, activities, and assessments.
+• ARCHITECT — Builds structured lessons with learning objectives, activities, and assessments.
 • TRACKMASTER — Creates backing tracks and audio content.
 • THEORYBOT — Music theory specialist. Scales, chords, intervals, progressions.
 • COACH — Practice plans, technique advice, student guidance.
-• FEEDBACK_LOOP — Reviews content quality, UX, and consistency.
+• FEEDBACK — Reviews content quality, UX, and consistency.
 • CONTENTMILL — Social media captions, blog posts, marketing copy.
 • SEOHAWK — SEO optimization, keyword research, meta descriptions.
-• COMMUNITY_PULSE — Community engagement, social listening, trend analysis.
+• COMMUNITY — Community engagement, social listening, trend analysis.
 • BIZOPS — Business strategy, pricing, market research.
 • PRODUCER — Project management, task planning, batch generation.
 
@@ -752,7 +752,7 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
       properties: {
         title: { type: 'string', description: 'Task title — be specific about what you need.' },
         description: { type: 'string', description: 'Detailed instructions for the agent. Include context, requirements, and expected output format.' },
-        agent_codename: { type: 'string', description: 'Codename of the agent to assign. Available: TABSMITH, LESSON_ARCHITECT, TRACKMASTER, THEORYBOT, COACH, FEEDBACK_LOOP, SEOHAWK, COMMUNITY_PULSE, BIZOPS' },
+        agent_codename: { type: 'string', description: 'Codename of the agent to assign. Available: TABSMITH, ARCHITECT, TRACKMASTER, THEORYBOT, COACH, FEEDBACK, CONTENTMILL, SEOHAWK, COMMUNITY, BIZOPS, PRODUCER' },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'], description: 'Task priority (default: medium)' },
       },
       required: ['title', 'description', 'agent_codename']

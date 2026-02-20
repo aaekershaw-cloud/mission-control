@@ -183,9 +183,25 @@ export async function autoReviewTask(taskId: string): Promise<AutoReviewResult> 
     return { decision: 'flag', reasons, checks, repairedContent };
   }
 
-  // 6. Review-required or external tags
+  // 6. Strategy/business tasks — always need Andrew's eyes
+  const strategicTags = ['strategy', 'pricing', 'business', 'market-research', 'competitive'];
+  const strategicCodenames = ['BIZOPS', 'COACH', 'FEEDBACK', 'COMMUNITY'];
+  const isStrategic = tags.some((tag: string) => strategicTags.includes(tag.toLowerCase()))
+    || strategicCodenames.includes((task.agent_codename as string || '').toUpperCase());
+
+  if (isStrategic) {
+    checks.push({
+      name: 'Strategic Content',
+      passed: false,
+      detail: 'Strategy/business recommendations require human review before implementation'
+    });
+    reasons.push('Strategic content — needs human approval before agents can act on it');
+    return { decision: 'flag', reasons, checks, repairedContent };
+  }
+
+  // 7. Review-required or external tags
   const alwaysReviewTags = ['review-required', 'external'];
-  const requiresReview = tags.some(tag => alwaysReviewTags.includes(tag.toLowerCase()));
+  const requiresReview = tags.some((tag: string) => alwaysReviewTags.includes(tag.toLowerCase()));
   
   if (requiresReview) {
     checks.push({

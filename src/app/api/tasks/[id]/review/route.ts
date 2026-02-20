@@ -77,7 +77,7 @@ export async function POST(
   const { action, feedback } = body as { action: string; feedback?: string };
 
   const task = await db.get(`
-    SELECT t.*, a.name as agent_name, a.avatar as agent_avatar
+    SELECT t.*, a.name as agent_name, a.avatar as agent_avatar, a.codename as agent_codename
     FROM tasks t
     LEFT JOIN agents a ON t.assignee_id = a.id
     WHERE t.id = $1
@@ -161,6 +161,58 @@ export async function POST(
           }).then(r => r.json()).then(data => {
             console.log(`[Social] Posted for "${task.title}":`, data.results?.map((r: {platform: string; ok: boolean}) => `${r.platform}:${r.ok}`).join(', '));
           }).catch(err => console.error('[Social] Failed:', err));
+        }
+      }
+    }
+
+    // If this is a strategic/BizOps task, create implementation tasks from the recommendations
+    const agentCodename = (task as any).agent_codename || '';
+    const strategicCodenames = ['BIZOPS', 'COACH', 'FEEDBACK', 'COMMUNITY'];
+    const isStrategic = strategicCodenames.includes(agentCodename.toUpperCase());
+
+    if (isStrategic) {
+      const latestStratResult = await db.get(
+        `SELECT response FROM task_results WHERE task_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1`,
+        [taskId]
+      ) as { response: string } | undefined;
+
+      if (latestStratResult) {
+        // Use the Producer to break down the strategy into implementation tasks
+        const implTaskId = uuid();
+        const implDesc = `**Andrew approved this strategy from ${task.agent_name || 'BizOps'}. Break it down into concrete implementation tasks and delegate to the right agents.**
+
+## Approved Strategy: ${task.title}
+
+${latestStratResult.response}
+
+---
+
+Create 2-5 specific, actionable implementation tasks. Assign each to the most appropriate agent:
+- CONTENTMILL for marketing copy, social posts, landing page updates
+- SEOHAWK for SEO changes
+- LESSON_ARCHITECT for course/lesson content
+- TABSMITH for tab/lick content
+- THEORYBOT for music theory content
+- TRACKMASTER for audio/backing tracks
+- COACH for practice plans
+
+Use the delegate_task tool for each implementation task. Be specific in the instructions.`;
+
+        // Find the Producer agent
+        const producer = await db.get(
+          `SELECT id FROM agents WHERE UPPER(codename) = 'PRODUCER'`
+        ) as { id: string } | undefined;
+
+        if (producer) {
+          await db.run(`
+            INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, depends_on, created_at, updated_at)
+            VALUES ($1, $2, $3, 'todo', 'high', $4, '["implementation", "delegated-strategy"]', $5, NOW(), NOW())
+          `, [implTaskId, `Implement: ${task.title}`, implDesc, producer.id, taskId]);
+
+          await postCommsMessage(SYSTEM_AGENT_ID,
+            `🚀 Strategy approved: **${task.title}**. Implementation task created — Producer will break it down and delegate to the team.`,
+            'system'
+          );
         }
       }
     }
