@@ -5,7 +5,7 @@ const AGENT_TOOLS: Record<string, string[]> = {
   'TABSMITH': ['music_theory', 'validate_tab', 'list_content', 'get_brand_context', 'delegate_task'],
   'LESSON_ARCHITECT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
   'ARCHITECT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
-  'TRACKMASTER': ['music_theory', 'list_content', 'get_brand_context', 'delegate_task'],
+  'TRACKMASTER': ['music_theory', 'list_content', 'get_brand_context', 'delegate_task', 'generate_backing_track'],
   'THEORYBOT': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
   'COACH': ['music_theory', 'list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],
   'FEEDBACK_LOOP': ['list_content', 'search_tasks', 'get_brand_context', 'delegate_task'],

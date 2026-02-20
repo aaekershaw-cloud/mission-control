@@ -728,7 +728,79 @@ export const TOOLS: Tool[] = [
       };
     }
   },
-  // j) delegate_task — recruit another agent
+  // j) generate_backing_track — MusicGen via Replicate
+  {
+    name: 'generate_backing_track',
+    description: 'Generate a backing track using MusicGen (via Replicate API). Returns an audio URL (.wav). Describe the musical style, key, tempo, instruments, and feel. Examples: "12-bar blues shuffle in A minor, 120 BPM, electric guitar and bass", "Slow jazz ballad in Bb major, brushed drums, upright bass, 80 BPM". Tracks are ~15-30 seconds by default.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Musical description of the backing track. Include genre, key, tempo/BPM, instruments, and feel/mood.' },
+        duration: { type: 'number', description: 'Duration in seconds (default: 15, max: 30)' },
+        model_version: { type: 'string', enum: ['stereo-melody-large', 'stereo-large', 'melody-large', 'large'], description: 'MusicGen model variant (default: stereo-melody-large)' },
+      },
+      required: ['prompt']
+    },
+    execute: async (params: { prompt: string; duration?: number; model_version?: string }) => {
+      const apiToken = process.env.REPLICATE_API_TOKEN;
+      if (!apiToken) throw new Error('REPLICATE_API_TOKEN not set');
+
+      const { prompt, duration = 15, model_version = 'stereo-melody-large' } = params;
+      const clampedDuration = Math.min(Math.max(duration, 5), 30);
+
+      const createRes = await fetch('https://api.replicate.com/v1/models/meta/musicgen/predictions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: {
+            prompt,
+            duration: clampedDuration,
+            model_version,
+            output_format: 'wav',
+            normalization_strategy: 'loudness',
+          }
+        })
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.text();
+        throw new Error(`Replicate API error ${createRes.status}: ${err}`);
+      }
+
+      let prediction = await createRes.json();
+
+      // MusicGen takes longer than image gen — allow up to 3 minutes
+      const maxWait = 180000;
+      const start = Date.now();
+      while (prediction.status !== 'succeeded' && prediction.status !== 'failed') {
+        if (Date.now() - start > maxWait) throw new Error('Backing track generation timed out (180s)');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
+          headers: { 'Authorization': `Bearer ${apiToken}` }
+        });
+        prediction = await pollRes.json();
+      }
+
+      if (prediction.status === 'failed') {
+        throw new Error(`Backing track generation failed: ${prediction.error || 'Unknown error'}`);
+      }
+
+      const audioUrl = prediction.output;
+
+      return {
+        url: audioUrl,
+        prompt,
+        duration: clampedDuration,
+        model: `musicgen-${model_version}`,
+        prediction_id: prediction.id,
+        cost_estimate: '$0.02'
+      };
+    }
+  },
+  // k) delegate_task — recruit another agent
   {
     name: 'delegate_task',
     description: `Create a task and assign it to another agent. Use this whenever you need specialized help — don't try to do everything yourself.
