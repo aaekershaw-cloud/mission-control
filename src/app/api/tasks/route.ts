@@ -91,11 +91,17 @@ export async function POST(request: NextRequest) {
       dependsOn = '',
     } = body;
 
-    if (!title) {
+    if (!title || typeof title !== 'string' || title.trim().length < 3) {
       return NextResponse.json(
-        { error: 'title is required' },
+        { error: 'title is required (min 3 chars)', code: 'VALIDATION_ERROR' },
         { status: 400 }
       );
+    }
+    if (!['backlog', 'todo', 'in_progress', 'review', 'done'].includes(status)) {
+      return NextResponse.json({ error: 'invalid status', code: 'VALIDATION_ERROR' }, { status: 400 });
+    }
+    if (!['low', 'medium', 'high', 'critical'].includes(priority)) {
+      return NextResponse.json({ error: 'invalid priority', code: 'VALIDATION_ERROR' }, { status: 400 });
     }
 
     // Dedup guard
