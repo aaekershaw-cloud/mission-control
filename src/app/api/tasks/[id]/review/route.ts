@@ -120,11 +120,7 @@ export async function POST(
     }
     await postCommsMessage(task.assignee_id || SYSTEM_AGENT_ID, approveContent, 'system');
 
-    // Route QA gate to @Qualtrol before any staging export
-    const taskResult = await db.get('SELECT response FROM task_results WHERE task_id = $1', [taskId]);
-    const taskContent = taskResult?.response || task.description || '';
-
-    // Determine content category from tags
+    // Determine content category/tags for website gating
     const taskTags: string[] = (() => {
       try {
         const raw = task.tags;
@@ -137,25 +133,53 @@ export async function POST(
       : taskTags.includes('course') || taskTags.includes('lesson') ? 'courses'
       : taskTags.includes('blog') ? 'blog' : 'courses';
 
-    const qualtrol = await db.get(`SELECT id, name FROM agents WHERE UPPER(codename) = 'QUALTROL' LIMIT 1`) as { id: string; name: string } | undefined;
-    if (qualtrol?.id) {
-      const qaTaskId = uuid();
-      const qaTitle = `QA Gate: ${task.title}`;
-      const qaDesc = `Review approved content before staging export.\n\nOriginal task: ${taskId}\nCategory: ${category}\nAuthor: ${task.agent_name || task.assignee_name || 'unknown'}\n\nChecklist:\n- grammar/spelling\n- factual correctness\n- JSON/content structure\n- formatting/tab notation\n\nWhen approved, trigger export for original taskId ${taskId}.\n\nContent:\n${String(taskContent).slice(0, 8000)}`;
+    const chainContext = (() => {
+      try {
+        if (!task.chain_context) return {} as Record<string, unknown>;
+        if (typeof task.chain_context === 'string') return JSON.parse(task.chain_context);
+        return task.chain_context as Record<string, unknown>;
+      } catch { return {} as Record<string, unknown>; }
+    })();
 
-      await db.run(
-        `INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, chain_context, created_at, updated_at)
-         VALUES ($1, $2, $3, 'todo', 'high', $4, $5, $6, NOW(), NOW())`,
-        [qaTaskId, qaTitle, qaDesc, qualtrol.id, JSON.stringify(['qa', 'qualtrol-review', 'pre-staging', category]), JSON.stringify({ sourceTaskId: taskId, category, action: 'pre_staging_qc' })]
-      );
+    const isQaGate = taskTags.includes('qualtrol-review') || chainContext.action === 'pre_staging_qc';
 
-      await postCommsMessage(SYSTEM_AGENT_ID, `@${qualtrol.name} QA gate created for **${task.title}** (source task: ${taskId}).`, 'system', qualtrol.id);
-      await logActivity('review', `Queued @Qualtrol QA gate for ${task.title}`, `Source task ${taskId}`, qualtrol.id, { sourceTaskId: taskId, category });
-      await triggerQueueIfNeeded();
+    if (isQaGate) {
+      // QA gate approval: export source task only (strict website path)
+      const sourceTaskId = (chainContext.sourceTaskId as string) || taskId;
+      fetch('http://localhost:3003/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: sourceTaskId, qaApproved: true, qaGateTaskId: taskId }),
+      }).then(r => r.json()).then(data => {
+        console.log(`[Export] QA-approved export for source ${sourceTaskId}:`, data.exported || 0);
+      }).catch(err => console.error('[Export] QA-approved export failed:', err));
+
+      await logActivity('review', `QA approved and exported source task`, `QA task ${taskId} -> source ${sourceTaskId}`, task.assignee_id as string, { qaTaskId: taskId, sourceTaskId });
     } else {
-      // No automatic Hal fallback anymore; fail closed and alert in comms.
-      await postCommsMessage(SYSTEM_AGENT_ID, `⚠️ QA gate not created for **${task.title}** because @Qualtrol is missing. Add/restore QUALTROL agent to resume pre-staging QA flow.`, 'system');
-      await logActivity('review', `QA gate blocked: missing QUALTROL for ${task.title}`, `Source task ${taskId}`, SYSTEM_AGENT_ID, { sourceTaskId: taskId, category, reason: 'missing_qualtrol' });
+      // Normal approval route: create QA gate assigned to @Qualtrol
+      const taskResult = await db.get('SELECT response FROM task_results WHERE task_id = $1', [taskId]);
+      const taskContent = taskResult?.response || task.description || '';
+
+      const qualtrol = await db.get(`SELECT id, name FROM agents WHERE UPPER(codename) = 'QUALTROL' LIMIT 1`) as { id: string; name: string } | undefined;
+      if (qualtrol?.id) {
+        const qaTaskId = uuid();
+        const qaTitle = `QA Gate: ${task.title}`;
+        const qaDesc = `Review approved content before staging export.\n\nOriginal task: ${taskId}\nCategory: ${category}\nAuthor: ${task.agent_name || task.assignee_name || 'unknown'}\n\nChecklist:\n- grammar/spelling\n- factual correctness\n- JSON/content structure\n- formatting/tab notation\n\nWhen approved, trigger export for original taskId ${taskId}.\n\nContent:\n${String(taskContent).slice(0, 8000)}`;
+
+        await db.run(
+          `INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, chain_context, created_at, updated_at)
+           VALUES ($1, $2, $3, 'todo', 'high', $4, $5, $6, NOW(), NOW())`,
+          [qaTaskId, qaTitle, qaDesc, qualtrol.id, JSON.stringify(['qa', 'qualtrol-review', 'pre-staging', category]), JSON.stringify({ sourceTaskId: taskId, category, action: 'pre_staging_qc', publish_target: 'website' })]
+        );
+
+        await postCommsMessage(SYSTEM_AGENT_ID, `@${qualtrol.name} QA gate created for **${task.title}** (source task: ${taskId}).`, 'system', qualtrol.id);
+        await logActivity('review', `Queued @Qualtrol QA gate for ${task.title}`, `Source task ${taskId}`, qualtrol.id, { sourceTaskId: taskId, category });
+        await triggerQueueIfNeeded();
+      } else {
+        // No automatic Hal fallback anymore; fail closed and alert in comms.
+        await postCommsMessage(SYSTEM_AGENT_ID, `⚠️ QA gate not created for **${task.title}** because @Qualtrol is missing. Add/restore QUALTROL agent to resume pre-staging QA flow.`, 'system');
+        await logActivity('review', `QA gate blocked: missing QUALTROL for ${task.title}`, `Source task ${taskId}`, SYSTEM_AGENT_ID, { sourceTaskId: taskId, category, reason: 'missing_qualtrol' });
+      }
     }
 
     // Auto-post to social media if this is a social content task

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { logActivity } from '@/lib/activityLog';
-import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
 const CONTENT_DIR = '/Users/andrewkershaw/.openclaw/workspace/projects/fretboard-mastery/landing-page/content';
 const REPO_DIR = '/Users/andrewkershaw/.openclaw/workspace/projects/fretboard-mastery/landing-page';
+
+const WEBSITE_ALLOWED_CATEGORIES = new Set(['courses', 'lessons', 'licks', 'blog']);
 
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
   const db = getDb();
   const body = await req.json();
 
+  // Strict website export gate: require explicit QA approval signal for single-task export
+  if (body.taskId && body.qaApproved !== true) {
+    return NextResponse.json({ error: 'Export blocked: qaApproved=true required for staging export', code: 'EXPORT_QA_REQUIRED' }, { status: 403 });
+  }
+
   let tasks: Array<Record<string, unknown>>;
 
   if (body.taskId) {
@@ -107,21 +113,16 @@ export async function POST(req: NextRequest) {
 
     if (category === 'other') { skipped.push(task.id as string); continue; }
 
-    // Social content → MC content pipeline (not staging)
-    if (category === 'social') {
-      const titleLower = ((task.title as string) || '').toLowerCase();
-      let platform = 'twitter';
-      if (titleLower.includes('instagram') || titleLower.includes('caption')) platform = 'instagram';
-      if (titleLower.includes('tiktok')) platform = 'tiktok';
-      if (titleLower.includes('youtube')) platform = 'youtube';
+    if (!WEBSITE_ALLOWED_CATEGORIES.has(category)) {
+      skipped.push(task.id as string);
+      await logActivity('export', `Blocked export (category not website-allowed): ${task.title}`, `Category: ${category}`, task.assignee_id as string || null, { taskId: task.id, category });
+      continue;
+    }
 
-      const itemId = uuid();
-      await db.run(
-        'INSERT INTO content_pipeline (id, title, body, stage, platform, assigned_agent_id, metadata, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())',
-        [itemId, task.title as string, response.substring(0, 10000), 'review', platform, task.assignee_id as string || null, JSON.stringify({ taskId: task.id, autoCreated: true })]
-      );
-      await logActivity('content', `Social content to pipeline: ${task.title}`, `Added as ${platform} content for review`, task.assignee_id as string || null, { taskId: task.id, platform, pipelineItemId: itemId });
-      exported.push({ taskId: task.id as string, category: 'social-pipeline', file: itemId });
+    // Strict gate: export route only stages website content, never social pipeline content
+    if (category === 'social') {
+      skipped.push(task.id as string);
+      await logActivity('export', `Blocked export (social content): ${task.title}`, 'Only website-bound content is allowed to staging export.', task.assignee_id as string || null, { taskId: task.id, category });
       continue;
     }
 
