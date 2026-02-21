@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { notifyAgent, notifyTaskSubscribers } from '@/lib/notifications';
+import { getAgentTodoCount, LOOP_LIMITS } from '@/lib/loopControls';
 
 export async function GET(
   _request: NextRequest,
@@ -126,6 +127,20 @@ export async function PUT(
         { error: 'No valid fields to update' },
         { status: 400 }
       );
+    }
+
+    // Enforce per-agent todo cap
+    if (newStatus === 'todo') {
+      const targetAssignee = (body.assigneeId ?? existing.assignee_id) as string | null;
+      if (targetAssignee) {
+        const todoCount = await getAgentTodoCount(targetAssignee);
+        if (todoCount >= LOOP_LIMITS.maxTodoPerAgent && oldStatus !== 'todo') {
+          return NextResponse.json(
+            { error: `Assignee reached todo cap (${LOOP_LIMITS.maxTodoPerAgent}). Move to backlog or clear queue first.` },
+            { status: 409 }
+          );
+        }
+      }
     }
 
     setClauses.push('updated_at = NOW()');

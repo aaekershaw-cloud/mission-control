@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { v4 as uuid } from 'uuid';
+import { findDuplicateTask, getAgentTodoCount, LOOP_LIMITS, inferContentCategory, shouldGateCategory } from '@/lib/loopControls';
+import { logActivity } from '@/lib/activityLog';
 
 export async function GET(request: NextRequest) {
   try {
@@ -96,6 +98,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Dedup guard
+    const duplicate = await findDuplicateTask(title, assigneeId);
+    if (duplicate) {
+      await logActivity('system', `Dedup blocked task create: ${title}`, `Duplicate of ${duplicate.id}`, assigneeId || undefined, { duplicateId: duplicate.id });
+      return NextResponse.json({ error: 'Duplicate task blocked', duplicateTaskId: duplicate.id }, { status: 409 });
+    }
+
+    // Backlog-aware gating by content type (staging pressure)
+    const inferredCategory = inferContentCategory(title, Array.isArray(tags) ? tags : []);
+    const gated = await shouldGateCategory(inferredCategory);
+
+    // Per-agent WIP cap for todo
+    let finalStatus = status;
+    if (assigneeId && finalStatus === 'todo') {
+      const todoCount = await getAgentTodoCount(assigneeId);
+      if (todoCount >= LOOP_LIMITS.maxTodoPerAgent) {
+        finalStatus = 'backlog';
+      }
+    }
+
+    if (gated && ['todo', 'backlog'].includes(finalStatus)) {
+      finalStatus = 'backlog';
+    }
+
     const id = uuid();
     const now = new Date().toISOString();
     // dependsOn can be string (comma-sep IDs) or array
@@ -104,7 +130,7 @@ export async function POST(request: NextRequest) {
     await db.run(
       `INSERT INTO tasks (id, title, description, status, priority, assignee_id, squad_id, tags, estimated_tokens, depends_on, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [id, title, description, status, priority, assigneeId, squadId, JSON.stringify(tags), estimatedTokens, dependsOnStr, now, now]
+      [id, title, description, finalStatus, priority, assigneeId, squadId, JSON.stringify(tags), estimatedTokens, dependsOnStr, now, now]
     );
 
     const row = await db.get(`
@@ -121,7 +147,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Auto-start queue if task created as todo
-    if (status === 'todo') {
+    if (finalStatus === 'todo') {
       await triggerQueueIfNeeded();
     }
 

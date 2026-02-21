@@ -975,6 +975,7 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
     execute: async (params: { title: string; description: string; agent_codename: string; priority?: string }) => {
       const { v4: uuid } = await import('uuid');
       const db = getDb();
+      const { findDuplicateTask, getAgentTodoCount, LOOP_LIMITS, inferContentCategory, shouldGateCategory } = await import('@/lib/loopControls');
 
       // Find the agent by codename
       const agent = await db.get(
@@ -996,11 +997,22 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
       // Embed delegation context in the task description
       const enrichedDesc = `**📨 Delegated by ${fromName} (@${fromCodename})**\n\n${params.description}`;
 
+      // Dedup guard + backlog gating + assignee WIP cap
+      const dup = await findDuplicateTask(params.title, agent.id);
+      if (dup) {
+        return { success: false, blocked: 'duplicate', duplicateTaskId: dup.id, message: `Duplicate task blocked (existing: ${dup.id})` };
+      }
+
+      const gated = await shouldGateCategory(inferContentCategory(params.title, ['delegated']));
+      let status: 'todo' | 'backlog' = gated ? 'backlog' : 'todo';
+      const todoCount = await getAgentTodoCount(agent.id);
+      if (todoCount >= LOOP_LIMITS.maxTodoPerAgent) status = 'backlog';
+
       const taskId = uuid();
       await db.run(`
         INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, created_at, updated_at)
-        VALUES ($1, $2, $3, 'todo', $4, $5, '["delegated"]', NOW(), NOW())
-      `, [taskId, params.title, enrichedDesc, params.priority || 'medium', agent.id]);
+        VALUES ($1, $2, $3, $4, $5, $6, '["delegated"]', NOW(), NOW())
+      `, [taskId, params.title, enrichedDesc, status, params.priority || 'medium', agent.id]);
 
       // Post comms message so both agents and humans can see the recruitment
       const msgId = uuid();
@@ -1019,7 +1031,10 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
         assigned_to: agent.name,
         codename: agent.codename,
         delegated_by: fromName,
-        message: `Task "${params.title}" created and assigned to ${agent.name}. ${agent.name} has been notified. It will execute automatically.`
+        status,
+        message: status === 'todo'
+          ? `Task "${params.title}" created and assigned to ${agent.name}. ${agent.name} has been notified.`
+          : `Task "${params.title}" created in backlog (WIP/gating active) for ${agent.name}.`
       };
     }
   },

@@ -3,6 +3,13 @@ import { getDb } from '@/lib/db';
 import { v4 as uuid } from 'uuid';
 import { logActivity } from '@/lib/activityLog';
 import { notifyAgent } from '@/lib/notifications';
+import { inferContentCategory, LOOP_LIMITS } from '@/lib/loopControls';
+
+async function reviewCountForCategory(category: 'courses' | 'licks' | 'blog_social' | 'other') {
+  const db = getDb();
+  const rows = await db.all(`SELECT title, platform FROM content_pipeline WHERE stage = 'review'`, []) as Array<{ title: string; platform: string | null }>;
+  return rows.filter(r => inferContentCategory(r.title || '', [r.platform || '']) === category).length;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -70,11 +77,22 @@ export async function POST(request: NextRequest) {
     const db = getDb();
     const data = await request.json();
     
+    const requestedStage = data.stage || 'idea';
+    const cat = inferContentCategory(data.title || '', [data.platform || '']);
+    if (requestedStage === 'review' && cat !== 'other') {
+      const reviewCount = await reviewCountForCategory(cat);
+      if (reviewCount >= LOOP_LIMITS.maxReviewPerContentCategory) {
+        return NextResponse.json({
+          error: `Review lane cap reached for ${cat} (${LOOP_LIMITS.maxReviewPerContentCategory}).`,
+        }, { status: 409 });
+      }
+    }
+
     const content = {
       id: uuid(),
       title: data.title,
       body: data.body || '',
-      stage: data.stage || 'idea',
+      stage: requestedStage,
       platform: data.platform || 'blog',
       assigned_agent_id: data.assigned_agent_id || null,
       thumbnail_url: data.thumbnail_url || null,
@@ -162,6 +180,17 @@ export async function PUT(request: NextRequest) {
     // Log stage change if it occurred
     const oldStage = currentItem.stage;
     const newStage = updates.stage;
+
+    if (newStage === 'review' && newStage !== oldStage) {
+      const cat = inferContentCategory(currentItem.title || '', [currentItem.platform || '']);
+      if (cat !== 'other') {
+        const reviewCount = await reviewCountForCategory(cat);
+        if (reviewCount >= LOOP_LIMITS.maxReviewPerContentCategory) {
+          return NextResponse.json({ error: `Review lane cap reached for ${cat} (${LOOP_LIMITS.maxReviewPerContentCategory}).` }, { status: 409 });
+        }
+      }
+    }
+
     if (newStage && newStage !== oldStage) {
       await logActivity('content', `Content moved to ${newStage}: ${currentItem.title}`, '', currentItem.assigned_agent_id, { 
         itemId: id, 

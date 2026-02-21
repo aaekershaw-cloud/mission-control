@@ -348,6 +348,22 @@ export default function MissionControl() {
             <MetricsPanel metrics={metrics} />
             {analytics && (
               <>
+                <div className="glass p-6">
+                  <h3 className="text-lg font-semibold mb-4">🔁 Loop Health</h3>
+                  {(() => {
+                    const lh = (analytics as unknown as Record<string, any>).loopHealth || {};
+                    return (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+                        <div><p className="text-slate-500">Cycle Time</p><p className="text-emerald-300 font-semibold">{Math.round((lh.avgCycleMs || 0)/1000)}s</p></div>
+                        <div><p className="text-slate-500">Review Wait</p><p className="text-amber-300 font-semibold">{Math.round((lh.avgReviewWaitMs || 0)/1000)}s</p></div>
+                        <div><p className="text-slate-500">Auto Approved</p><p className="text-cyan-300 font-semibold">{lh.autoApprovedPct || 0}%</p></div>
+                        <div><p className="text-slate-500">Human Revised</p><p className="text-purple-300 font-semibold">{lh.humanRevisedPct || 0}%</p></div>
+                        <div><p className="text-slate-500">Dupes Blocked (7d)</p><p className="text-rose-300 font-semibold">{lh.duplicateTaskRate || 0}</p></div>
+                        <div><p className="text-slate-500">Throughput Trend</p><p className="text-slate-200 font-semibold">{Array.isArray(lh.tasksCreatedVsCompletedByDay) ? lh.tasksCreatedVsCompletedByDay.length : 0} days</p></div>
+                      </div>
+                    );
+                  })()}
+                </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Tasks by Status */}
                   <div className="glass p-6">

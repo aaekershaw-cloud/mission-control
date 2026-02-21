@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import type { TaskStatus } from '@/types';
+import { getLoopHealthMetrics } from '@/lib/loopControls';
 
 export async function GET() {
   try {
@@ -119,6 +120,8 @@ export async function GET() {
       LIMIT 20
     `, []) as Record<string, unknown>[];
 
+    const loopHealth = await getLoopHealthMetrics();
+
     return NextResponse.json({
       totalAgents: agentStats.total_agents ?? 0,
       activeAgents: agentStats.active_agents ?? 0,
@@ -143,6 +146,7 @@ export async function GET() {
         status: r.status,
         createdAt: r.created_at,
       })),
+      loopHealth,
     });
   } catch (error) {
     console.error('GET /api/analytics error:', error);

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { v4 as uuid } from 'uuid';
+import { findDuplicateTask, getAgentTodoCount, LOOP_LIMITS, inferContentCategory, shouldGateCategory } from '@/lib/loopControls';
+import { logActivity } from '@/lib/activityLog';
 
 /**
  * POST /api/produce
@@ -67,6 +69,7 @@ export async function POST(req: NextRequest) {
   const titleToId = new Map(allTasks.map(t => [t.title.toLowerCase(), t.id]));
 
   const created: string[] = [];
+  const skipped: Array<{ title: string; reason: string }> = [];
   const newTitleToId = new Map<string, string>();
 
   for (const t of tasks) {
@@ -76,7 +79,16 @@ export async function POST(req: NextRequest) {
     const priority = (t.priority as string) || 'medium';
     const agentCodename = ((t.agent as string) || '').toUpperCase();
     const assigneeId = agentMap.get(agentCodename) || null;
-    const tags = JSON.stringify(Array.isArray(t.tags) ? t.tags : []);
+    const tagArr = Array.isArray(t.tags) ? t.tags as string[] : [];
+    const tags = JSON.stringify(tagArr);
+
+    // Dedup guard
+    const dup = await findDuplicateTask(title, assigneeId);
+    if (dup) {
+      skipped.push({ title, reason: `duplicate:${dup.id}` });
+      await logActivity('system', `Dedup blocked produced task: ${title}`, `Duplicate of ${dup.id}`, assigneeId || undefined, { duplicateId: dup.id });
+      continue;
+    }
 
     // Resolve dependency
     let dependsOn = '';
@@ -86,7 +98,18 @@ export async function POST(req: NextRequest) {
       if (depId) dependsOn = depId;
     }
 
-    const status = dependsOn ? 'backlog' : 'todo';
+    // Staging/backlog aware gating by category
+    const category = inferContentCategory(title, tagArr);
+    const gated = await shouldGateCategory(category);
+
+    let status: 'backlog' | 'todo' = dependsOn ? 'backlog' : 'todo';
+    if (gated) status = 'backlog';
+
+    // WIP cap per assignee
+    if (status === 'todo' && assigneeId) {
+      const todoCount = await getAgentTodoCount(assigneeId);
+      if (todoCount >= LOOP_LIMITS.maxTodoPerAgent) status = 'backlog';
+    }
 
     await db.run(`
       INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, depends_on, created_at, updated_at)
@@ -103,6 +126,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     created: created.length,
+    skipped,
     taskIds: created,
   });
 }

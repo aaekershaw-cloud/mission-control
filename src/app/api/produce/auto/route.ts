@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { v4 as uuid } from 'uuid';
+import { getStagingBacklogByCategory, LOOP_LIMITS } from '@/lib/loopControls';
 
 /**
  * POST /api/produce/auto
@@ -17,12 +18,16 @@ export async function POST() {
     return NextResponse.json({ error: 'Producer agent not found' }, { status: 404 });
   }
 
-  // Check if Producer already has a pending/in-progress task
+  // Check if Producer already has an active planning task (max 1)
   const activeTask = await db.get(`
-    SELECT id, status FROM tasks WHERE assignee_id = $1 AND status IN ('todo', 'in_progress')
+    SELECT id, status FROM tasks
+    WHERE assignee_id = $1
+      AND title LIKE '[Auto] Generate task batch%'
+      AND status IN ('backlog','todo', 'in_progress', 'review')
+    ORDER BY created_at DESC LIMIT 1
   `, [producer.id]) as { id: string; status: string } | undefined;
   if (activeTask) {
-    return NextResponse.json({ skipped: true, reason: 'Producer already has an active task', taskId: activeTask.id });
+    return NextResponse.json({ skipped: true, reason: 'Producer already has an active planning task', taskId: activeTask.id });
   }
 
   // Gather current state
@@ -55,6 +60,10 @@ export async function POST() {
   const recentWork = recentCompleted.map(t => `- ✅ "${t.title}" (${t.agent_name})`).join('\n');
   const inReview = recentReview.map(t => `- 🔍 "${t.title}" (${t.agent_name})`).join('\n');
   const workload = agentWorkload.map(a => `- ${a.name} (${a.codename}): ${a.todo_count} queued, ${a.done_count} completed`).join('\n');
+  const stagingBacklog = await getStagingBacklogByCategory();
+  const gatedCategories = Object.entries(stagingBacklog)
+    .filter(([, n]) => n >= LOOP_LIMITS.stagingBlockThresholdPerCategory)
+    .map(([k]) => k);
 
   const description = `You are generating the next batch of tasks for the FretCoach.ai agent fleet.
 
@@ -70,6 +79,16 @@ ${inReview || '(none)'}
 ### Agent Workload
 ${workload}
 
+### Staging/Pipeline Backlog by Content Type
+- courses: ${stagingBacklog.courses}
+- licks: ${stagingBacklog.licks}
+- blog_social: ${stagingBacklog.blog_social}
+- other: ${stagingBacklog.other}
+- gate threshold: ${LOOP_LIMITS.stagingBlockThresholdPerCategory}
+
+If a category is at/above threshold, DO NOT create more tasks for it until backlog is approved/cleared.
+Currently gated categories: ${gatedCategories.length ? gatedCategories.join(', ') : '(none)'}
+
 ## BUSINESS PLAN CONTEXT
 FretCoach.ai is an AI-powered guitar learning platform. Key phases:
 - Phase 0 (Foundation): COMPLETE — landing page, lead magnets, email funnel, Mission Control, all agents active
@@ -84,6 +103,12 @@ Analyze the current state and generate 10-15 NEW tasks that:
 3. Balance workload across agents (prioritize underutilized agents)
 4. Push the project toward Phase 1 completion
 5. Include some marketing/growth tasks alongside content tasks
+
+QUOTA RULES (MANDATORY):
+- Use balanced quotas by deficit: licks, courses, blog/SEO, growth/social.
+- If a category is gated (backlog at/above threshold), create 0 tasks for that category.
+- Favor categories with lowest backlog first.
+- Keep each agent at manageable queue load (avoid over-assigning one agent).
 
 Focus areas this cycle:
 - Lick library expansion (target: 250+ total)

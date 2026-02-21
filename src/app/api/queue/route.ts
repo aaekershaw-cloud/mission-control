@@ -129,11 +129,36 @@ export async function GET() {
   // If state says running but in-memory flag disagrees, sync
   const effectiveStatus = queueRunning ? 'running' : 'idle';
 
-  // Get count of todo tasks with assignees
+  // Get count of todo/in_progress tasks
   const db = getDb();
   const remaining = await db.get(
     `SELECT COUNT(*) as c FROM tasks WHERE status = 'todo'`
   ) as { c: number };
+  const inProgress = await db.get(
+    `SELECT COUNT(*) as c FROM tasks WHERE status = 'in_progress'`
+  ) as { c: number };
+
+  // Auto-escalation: if idle >10m and no active work, trigger Producer refill (cooldown 30m)
+  if (effectiveStatus === 'idle' && remaining.c === 0 && inProgress.c === 0) {
+    const idleForMs = Date.now() - new Date(state.updated_at).getTime();
+    if (idleForMs > 10 * 60 * 1000) {
+      const recentEscalation = await db.get(
+        `SELECT COUNT(*) as c FROM tasks
+         WHERE title LIKE '[Auto] Generate task batch%' AND created_at > NOW() - INTERVAL '30 minutes'`,
+        []
+      ) as { c: number };
+
+      if ((recentEscalation.c || 0) === 0) {
+        fetch('http://localhost:3003/api/produce/auto', { method: 'POST' }).catch(() => {});
+        // System notification message
+        const { v4: uuid } = await import('uuid');
+        await db.run(
+          `INSERT INTO messages (id, from_agent_id, content, type, created_at) VALUES ($1, $2, $3, 'system', NOW())`,
+          [uuid(), 'system', '⚠️ Queue idle >10m with no active work. Triggered Producer emergency refill.']
+        );
+      }
+    }
+  }
 
   return NextResponse.json({
     status: effectiveStatus,

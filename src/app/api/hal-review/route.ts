@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     // Keep message short — full content is in the pending_reviews DB table
     const shortMsg = `[CONTENT REVIEW] Task approved: "${taskTitle}" by ${agentName}. Category: ${category}. Task ID: ${taskId}. Fetch full content from http://localhost:3003/api/hal-review?taskId=${taskId} — review for errors, then PUT corrections and export to staging.`;
     exec(
-      `openclaw cron add --at "+0m" --delete-after-run --name "review-${taskId.substring(0,8)}" --message "${shortMsg.replace(/"/g, '\\"')}"`,
+      `openclaw cron add --at "1m" --delete-after-run --name "review-${taskId.substring(0,8)}" --message "${shortMsg.replace(/"/g, '\\"')}"`,
       { timeout: 30000, env: { ...process.env, PATH: process.env.PATH + ':/opt/homebrew/bin' } },
       (err, stdout) => {
         if (err) {

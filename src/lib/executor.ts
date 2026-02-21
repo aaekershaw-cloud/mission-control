@@ -5,6 +5,7 @@ import { getToolsForAgent, executeTool } from '@/lib/agentTools';
 import { processAutoReview } from '@/lib/autoApprove';
 import { logActivity } from '@/lib/activityLog';
 import { subscribeToTask, notifyTaskSubscribers, updateWorkingMemory } from '@/lib/notifications';
+import { inferContentCategory, LOOP_LIMITS, shouldGateCategory } from '@/lib/loopControls';
 
 export interface ExecutionResult {
   id: string;
@@ -491,6 +492,15 @@ ${levelGuide}
   const isSocial = taskTags.some(t => socialTags.some(st => t.toLowerCase().includes(st)));
   if (isSocial) {
     let postsCreated = 0;
+    const cat = inferContentCategory(task.title as string, taskTags as string[]);
+    const gated = await shouldGateCategory(cat as any);
+    if (gated) {
+      await logActivity('content', `Skipped content pipeline create (gated): ${task.title}`, `Category ${cat} at/above staging threshold`, task.assignee_id as string, { taskId: task.id, category: cat, threshold: LOOP_LIMITS.stagingBlockThresholdPerCategory });
+    }
+
+    if (gated) {
+      // do not auto-create more content cards while review/staging backlog is high for this category
+    } else {
 
     // Try to parse structured multi-post JSON array from response
     try {
@@ -531,6 +541,7 @@ ${levelGuide}
         [uuid(), task.title, finalResponse.substring(0, 5000), 'review', platform, task.assignee_id, thumbnailUrl, JSON.stringify({ taskId: task.id, autoCreated: true })]
       );
       await logActivity('content', `Content created: ${task.title}`, `Auto-added to pipeline as "${platform}" content`, task.assignee_id, { taskId: task.id, stage: 'review' });
+    }
     }
   }
 
