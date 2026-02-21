@@ -153,20 +153,9 @@ export async function POST(
       await logActivity('review', `Queued @Qualtrol QA gate for ${task.title}`, `Source task ${taskId}`, qualtrol.id, { sourceTaskId: taskId, category });
       await triggerQueueIfNeeded();
     } else {
-      // Fallback if Qualtrol is missing: keep previous hal-review behavior
-      fetch('http://localhost:3003/api/hal-review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskId,
-          taskTitle: task.title,
-          agentName: task.agent_name || task.assignee_name || 'unknown',
-          category,
-          content: taskContent,
-        }),
-      }).then(r => r.json()).then(data => {
-        console.log(`[HalReview] Fallback review request for "${task.title}":`, data.message || data.error);
-      }).catch(err => console.error('[HalReview] Fallback failed:', err));
+      // No automatic Hal fallback anymore; fail closed and alert in comms.
+      await postCommsMessage(SYSTEM_AGENT_ID, `⚠️ QA gate not created for **${task.title}** because @Qualtrol is missing. Add/restore QUALTROL agent to resume pre-staging QA flow.`, 'system');
+      await logActivity('review', `QA gate blocked: missing QUALTROL for ${task.title}`, `Source task ${taskId}`, SYSTEM_AGENT_ID, { sourceTaskId: taskId, category, reason: 'missing_qualtrol' });
     }
 
     // Auto-post to social media if this is a social content task
