@@ -120,11 +120,10 @@ export async function POST(
     }
     await postCommsMessage(task.assignee_id || SYSTEM_AGENT_ID, approveContent, 'system');
 
-    // Send to Hal for content review before staging export
-    // Hal reviews, corrects errors, then triggers the export
+    // Route QA gate to @Qualtrol before any staging export
     const taskResult = await db.get('SELECT response FROM task_results WHERE task_id = $1', [taskId]);
     const taskContent = taskResult?.response || task.description || '';
-    
+
     // Determine content category from tags
     const taskTags: string[] = (() => {
       try {
@@ -137,20 +136,38 @@ export async function POST(
     const category = taskTags.includes('lick') || taskTags.includes('licks') ? 'licks'
       : taskTags.includes('course') || taskTags.includes('lesson') ? 'courses'
       : taskTags.includes('blog') ? 'blog' : 'courses';
-    
-    fetch('http://localhost:3003/api/hal-review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        taskId,
-        taskTitle: task.title,
-        agentName: task.agent_name || task.assignee_name || 'unknown',
-        category,
-        content: taskContent,
-      }),
-    }).then(r => r.json()).then(data => {
-      console.log(`[HalReview] Review request sent for "${task.title}":`, data.message || data.error);
-    }).catch(err => console.error('[HalReview] Failed to send review request:', err));
+
+    const qualtrol = await db.get(`SELECT id, name FROM agents WHERE UPPER(codename) = 'QUALTROL' LIMIT 1`) as { id: string; name: string } | undefined;
+    if (qualtrol?.id) {
+      const qaTaskId = uuid();
+      const qaTitle = `QA Gate: ${task.title}`;
+      const qaDesc = `Review approved content before staging export.\n\nOriginal task: ${taskId}\nCategory: ${category}\nAuthor: ${task.agent_name || task.assignee_name || 'unknown'}\n\nChecklist:\n- grammar/spelling\n- factual correctness\n- JSON/content structure\n- formatting/tab notation\n\nWhen approved, trigger export for original taskId ${taskId}.\n\nContent:\n${String(taskContent).slice(0, 8000)}`;
+
+      await db.run(
+        `INSERT INTO tasks (id, title, description, status, priority, assignee_id, tags, chain_context, created_at, updated_at)
+         VALUES ($1, $2, $3, 'todo', 'high', $4, $5, $6, NOW(), NOW())`,
+        [qaTaskId, qaTitle, qaDesc, qualtrol.id, JSON.stringify(['qa', 'qualtrol-review', 'pre-staging', category]), JSON.stringify({ sourceTaskId: taskId, category, action: 'pre_staging_qc' })]
+      );
+
+      await postCommsMessage(SYSTEM_AGENT_ID, `@${qualtrol.name} QA gate created for **${task.title}** (source task: ${taskId}).`, 'system', qualtrol.id);
+      await logActivity('review', `Queued @Qualtrol QA gate for ${task.title}`, `Source task ${taskId}`, qualtrol.id, { sourceTaskId: taskId, category });
+      await triggerQueueIfNeeded();
+    } else {
+      // Fallback if Qualtrol is missing: keep previous hal-review behavior
+      fetch('http://localhost:3003/api/hal-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          taskTitle: task.title,
+          agentName: task.agent_name || task.assignee_name || 'unknown',
+          category,
+          content: taskContent,
+        }),
+      }).then(r => r.json()).then(data => {
+        console.log(`[HalReview] Fallback review request for "${task.title}":`, data.message || data.error);
+      }).catch(err => console.error('[HalReview] Fallback failed:', err));
+    }
 
     // Auto-post to social media if this is a social content task
     const taskTitle = (task.title || '').toLowerCase();
@@ -164,26 +181,66 @@ export async function POST(
       `, [taskId]) as { response: string } | undefined;
 
       if (latestResult) {
-        // Extract individual posts separated by ---
-        const posts = latestResult.response
-          .split(/\n---\n/)
-          .map(p => p.trim())
-          .filter(p => p.length > 10 && p.length < 2200);
+        // Try to parse ContentMill's JSON array format: [{platform, caption, image_url}, ...]
+        // Fall back to legacy ---separator format
+        interface SocialPost { platform: string; caption?: string; text?: string; image_url?: string; }
+        let platformPosts: SocialPost[] = [];
 
-        // Post each one (or just the first for now)
-        for (const postText of posts.slice(0, 3)) {
-          fetch('http://localhost:3003/api/social', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text: postText.replace(/^\*\*.*?\*\*\n*/m, '').replace(/^#+\s.*\n*/gm, '').trim(),
-              platforms: ['x', 'instagram'],
-              taskId,
-              postNow: false, // Queue in Buffer, don't blast immediately
-            }),
-          }).then(r => r.json()).then(data => {
-            console.log(`[Social] Posted for "${task.title}":`, data.results?.map((r: {platform: string; ok: boolean}) => `${r.platform}:${r.ok}`).join(', '));
-          }).catch(err => console.error('[Social] Failed:', err));
+        try {
+          const jsonMatch = latestResult.response.match(/```json\s*([\s\S]*?)```/i)
+            || latestResult.response.match(/(\[\s*\{[\s\S]*\}\s*\])/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[1]);
+            if (Array.isArray(parsed) && parsed[0]?.platform) {
+              platformPosts = parsed;
+            }
+          }
+        } catch { /* fall through to legacy */ }
+
+        if (platformPosts.length > 0) {
+          // New JSON format — send each platform its own caption + image
+          for (const post of platformPosts) {
+            const platform = post.platform?.toLowerCase();
+            if (!['x', 'instagram', 'twitter'].includes(platform)) continue;
+            const normalizedPlatform = platform === 'twitter' ? 'x' : platform;
+            const text = (post.caption || post.text || '').trim();
+            if (!text) continue;
+
+            fetch('http://localhost:3003/api/social', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                text,
+                platforms: [normalizedPlatform],
+                taskId,
+                postNow: true,
+                ...(post.image_url ? { media: { imageUrl: post.image_url } } : {}),
+              }),
+            }).then(r => r.json()).then(data => {
+              console.log(`[Social] ${normalizedPlatform} post for "${task.title}":`, data.results?.map((r: {platform: string; ok: boolean}) => `${r.platform}:${r.ok}`).join(', '));
+            }).catch(err => console.error('[Social] Failed:', err));
+          }
+        } else {
+          // Legacy: posts separated by ---
+          const posts = latestResult.response
+            .split(/\n---\n/)
+            .map((p: string) => p.trim())
+            .filter((p: string) => p.length > 10 && p.length < 2200);
+
+          for (const postText of posts.slice(0, 3)) {
+            fetch('http://localhost:3003/api/social', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                text: postText.replace(/^\*\*.*?\*\*\n*/m, '').replace(/^#+\s.*\n*/gm, '').trim(),
+                platforms: ['x', 'instagram'],
+                taskId,
+                postNow: true,
+              }),
+            }).then(r => r.json()).then(data => {
+              console.log(`[Social] Posted for "${task.title}":`, data.results?.map((r: {platform: string; ok: boolean}) => `${r.platform}:${r.ok}`).join(', '));
+            }).catch(err => console.error('[Social] Failed:', err));
+          }
         }
       }
     }
