@@ -18,6 +18,7 @@ import {
   FileText,
   DollarSign,
   Activity,
+  ClipboardList,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -33,6 +34,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agents', label: 'Agents', icon: Users },
   { id: 'tasks', label: 'Tasks', icon: KanbanSquare },
+  { id: 'my-tasks', label: 'My Tasks', icon: ClipboardList },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
   { id: 'memory', label: 'Memory', icon: Brain },
   { id: 'content', label: 'Content', icon: FileText },

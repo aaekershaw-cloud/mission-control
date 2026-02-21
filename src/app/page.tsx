@@ -23,13 +23,15 @@ const MemoryPage = dynamic(() => import('./memory/page'), { ssr: false });
 const ContentPage = dynamic(() => import('./content/page'), { ssr: false });
 const ActivityPage = dynamic(() => import('./activity/page'), { ssr: false });
 const StripeDashboardPage = dynamic(() => import('./stripe-dashboard/page'), { ssr: false });
+const MyTasksPage = dynamic(() => import('./my-tasks/page'), { ssr: false });
 
-type TabId = 'dashboard' | 'agents' | 'tasks' | 'calendar' | 'memory' | 'content' | 'activity' | 'stripe-dashboard' | 'comms' | 'analytics' | 'squads' | 'config';
+type TabId = 'dashboard' | 'agents' | 'tasks' | 'my-tasks' | 'calendar' | 'memory' | 'content' | 'activity' | 'stripe-dashboard' | 'comms' | 'analytics' | 'squads' | 'config';
 
 const TAB_TITLES: Record<TabId, string> = {
   dashboard: 'Command Center',
   agents: 'Agent Fleet',
   tasks: 'Mission Board',
+  'my-tasks': 'My Tasks',
   calendar: 'Calendar',
   memory: 'Memory Browser',
   content: 'Social Media',
@@ -251,7 +253,7 @@ export default function MissionControl() {
     setCommandPaletteOpen(false);
     const cmd = command.replace('tab:', '').replace('create:', 'new-').replace('toggle:', 'toggle-');
     switch (cmd) {
-      case 'dashboard': case 'agents': case 'tasks': case 'calendar': case 'memory': case 'content': case 'activity': case 'stripe-dashboard': case 'comms': case 'analytics': case 'squads': case 'config':
+      case 'dashboard': case 'agents': case 'tasks': case 'my-tasks': case 'calendar': case 'memory': case 'content': case 'activity': case 'stripe-dashboard': case 'comms': case 'analytics': case 'squads': case 'config':
         setActiveTab(cmd);
         break;
       case 'new-agent':
@@ -327,6 +329,8 @@ export default function MissionControl() {
         );
       case 'tasks':
         return <TaskBoard />;
+      case 'my-tasks':
+        return <MyTasksPage />;
       case 'calendar':
         return <CalendarPage />;
       case 'memory':
