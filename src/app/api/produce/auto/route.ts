@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { v4 as uuid } from 'uuid';
-import { getStagingBacklogByCategory, LOOP_LIMITS } from '@/lib/loopControls';
+import { getStagingBacklogByCategory, getLoopLimits } from '@/lib/loopControls';
 
 /**
  * POST /api/produce/auto
@@ -60,9 +60,10 @@ export async function POST() {
   const recentWork = recentCompleted.map(t => `- ✅ "${t.title}" (${t.agent_name})`).join('\n');
   const inReview = recentReview.map(t => `- 🔍 "${t.title}" (${t.agent_name})`).join('\n');
   const workload = agentWorkload.map(a => `- ${a.name} (${a.codename}): ${a.todo_count} queued, ${a.done_count} completed`).join('\n');
+  const limits = await getLoopLimits();
   const stagingBacklog = await getStagingBacklogByCategory();
   const gatedCategories = Object.entries(stagingBacklog)
-    .filter(([, n]) => n >= LOOP_LIMITS.stagingBlockThresholdPerCategory)
+    .filter(([, n]) => n >= limits.stagingBlockThresholdPerCategory)
     .map(([k]) => k);
 
   const description = `You are generating the next batch of tasks for the FretCoach.ai agent fleet.
@@ -84,7 +85,7 @@ ${workload}
 - licks: ${stagingBacklog.licks}
 - blog_social: ${stagingBacklog.blog_social}
 - other: ${stagingBacklog.other}
-- gate threshold: ${LOOP_LIMITS.stagingBlockThresholdPerCategory}
+- gate threshold: ${limits.stagingBlockThresholdPerCategory}
 
 If a category is at/above threshold, DO NOT create more tasks for it until backlog is approved/cleared.
 Currently gated categories: ${gatedCategories.length ? gatedCategories.join(', ') : '(none)'}

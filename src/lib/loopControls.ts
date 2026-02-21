@@ -6,6 +6,17 @@ export const LOOP_LIMITS = {
   stagingBlockThresholdPerCategory: Number(process.env.LOOP_STAGING_BLOCK_THRESHOLD || 6),
 };
 
+export async function getLoopLimits() {
+  const db = getDb();
+  const row = await db.get(`SELECT * FROM loop_controls WHERE id = 'singleton'`, []) as any;
+  if (!row) return LOOP_LIMITS;
+  return {
+    maxTodoPerAgent: Number(row.max_todo_per_agent || LOOP_LIMITS.maxTodoPerAgent),
+    maxReviewPerContentCategory: Number(row.max_review_per_content_category || LOOP_LIMITS.maxReviewPerContentCategory),
+    stagingBlockThresholdPerCategory: Number(row.staging_block_threshold || LOOP_LIMITS.stagingBlockThresholdPerCategory),
+  };
+}
+
 export type ContentCategory = 'courses' | 'licks' | 'blog_social' | 'other';
 
 export function inferContentCategory(title: string, tags: string[] = []): ContentCategory {
@@ -69,8 +80,9 @@ export async function getStagingBacklogByCategory() {
 
 export async function shouldGateCategory(category: ContentCategory): Promise<boolean> {
   if (category === 'other') return false;
+  const limits = await getLoopLimits();
   const backlog = await getStagingBacklogByCategory();
-  return (backlog[category] || 0) >= LOOP_LIMITS.stagingBlockThresholdPerCategory;
+  return (backlog[category] || 0) >= limits.stagingBlockThresholdPerCategory;
 }
 
 export async function getLoopHealthMetrics() {

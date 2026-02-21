@@ -14,6 +14,7 @@ import AgentFormModal from '@/components/AgentFormModal';
 import SquadDesigner from '@/components/SquadDesigner';
 import CommandPalette from '@/components/CommandPalette';
 import ProviderConfig from '@/components/ProviderConfig';
+import LoopControlsPanel from '@/components/LoopControlsPanel';
 import dynamic from 'next/dynamic';
 
 // Dynamic imports for the new pages to avoid SSR issues
@@ -472,8 +473,9 @@ export default function MissionControl() {
         );
       case 'config':
         return (
-          <div className="h-full overflow-y-auto pr-2 pb-6">
+          <div className="h-full overflow-y-auto pr-2 pb-6 space-y-4">
             <ProviderConfig onSave={() => { fetchData(); }} />
+            <LoopControlsPanel />
           </div>
         );
       default:

@@ -3,7 +3,7 @@ import { getDb } from '@/lib/db';
 import { v4 as uuid } from 'uuid';
 import { logActivity } from '@/lib/activityLog';
 import { notifyAgent } from '@/lib/notifications';
-import { inferContentCategory, LOOP_LIMITS } from '@/lib/loopControls';
+import { inferContentCategory, getLoopLimits } from '@/lib/loopControls';
 
 async function reviewCountForCategory(category: 'courses' | 'licks' | 'blog_social' | 'other') {
   const db = getDb();
@@ -80,10 +80,11 @@ export async function POST(request: NextRequest) {
     const requestedStage = data.stage || 'idea';
     const cat = inferContentCategory(data.title || '', [data.platform || '']);
     if (requestedStage === 'review' && cat !== 'other') {
+      const limits = await getLoopLimits();
       const reviewCount = await reviewCountForCategory(cat);
-      if (reviewCount >= LOOP_LIMITS.maxReviewPerContentCategory) {
+      if (reviewCount >= limits.maxReviewPerContentCategory) {
         return NextResponse.json({
-          error: `Review lane cap reached for ${cat} (${LOOP_LIMITS.maxReviewPerContentCategory}).`,
+          error: `Review lane cap reached for ${cat} (${limits.maxReviewPerContentCategory}).`,
         }, { status: 409 });
       }
     }
@@ -184,9 +185,10 @@ export async function PUT(request: NextRequest) {
     if (newStage === 'review' && newStage !== oldStage) {
       const cat = inferContentCategory(currentItem.title || '', [currentItem.platform || '']);
       if (cat !== 'other') {
+        const limits = await getLoopLimits();
         const reviewCount = await reviewCountForCategory(cat);
-        if (reviewCount >= LOOP_LIMITS.maxReviewPerContentCategory) {
-          return NextResponse.json({ error: `Review lane cap reached for ${cat} (${LOOP_LIMITS.maxReviewPerContentCategory}).` }, { status: 409 });
+        if (reviewCount >= limits.maxReviewPerContentCategory) {
+          return NextResponse.json({ error: `Review lane cap reached for ${cat} (${limits.maxReviewPerContentCategory}).` }, { status: 409 });
         }
       }
     }

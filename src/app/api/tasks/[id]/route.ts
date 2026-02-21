@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { notifyAgent, notifyTaskSubscribers } from '@/lib/notifications';
-import { getAgentTodoCount, LOOP_LIMITS } from '@/lib/loopControls';
+import { getAgentTodoCount, getLoopLimits } from '@/lib/loopControls';
 
 export async function GET(
   _request: NextRequest,
@@ -133,10 +133,11 @@ export async function PUT(
     if (newStatus === 'todo') {
       const targetAssignee = (body.assigneeId ?? existing.assignee_id) as string | null;
       if (targetAssignee) {
+        const limits = await getLoopLimits();
         const todoCount = await getAgentTodoCount(targetAssignee);
-        if (todoCount >= LOOP_LIMITS.maxTodoPerAgent && oldStatus !== 'todo') {
+        if (todoCount >= limits.maxTodoPerAgent && oldStatus !== 'todo') {
           return NextResponse.json(
-            { error: `Assignee reached todo cap (${LOOP_LIMITS.maxTodoPerAgent}). Move to backlog or clear queue first.` },
+            { error: `Assignee reached todo cap (${limits.maxTodoPerAgent}). Move to backlog or clear queue first.` },
             { status: 409 }
           );
         }

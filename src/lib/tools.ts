@@ -975,7 +975,7 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
     execute: async (params: { title: string; description: string; agent_codename: string; priority?: string }) => {
       const { v4: uuid } = await import('uuid');
       const db = getDb();
-      const { findDuplicateTask, getAgentTodoCount, LOOP_LIMITS, inferContentCategory, shouldGateCategory } = await import('@/lib/loopControls');
+      const { findDuplicateTask, getAgentTodoCount, inferContentCategory, shouldGateCategory, getLoopLimits } = await import('@/lib/loopControls');
 
       // Find the agent by codename
       const agent = await db.get(
@@ -1005,8 +1005,9 @@ The delegated task runs automatically. Use when: you need tab written, theory ch
 
       const gated = await shouldGateCategory(inferContentCategory(params.title, ['delegated']));
       let status: 'todo' | 'backlog' = gated ? 'backlog' : 'todo';
+      const limits = await getLoopLimits();
       const todoCount = await getAgentTodoCount(agent.id);
-      if (todoCount >= LOOP_LIMITS.maxTodoPerAgent) status = 'backlog';
+      if (todoCount >= limits.maxTodoPerAgent) status = 'backlog';
 
       const taskId = uuid();
       await db.run(`

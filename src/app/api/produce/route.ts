@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { triggerQueueIfNeeded } from '@/lib/autoQueue';
 import { v4 as uuid } from 'uuid';
-import { findDuplicateTask, getAgentTodoCount, LOOP_LIMITS, inferContentCategory, shouldGateCategory } from '@/lib/loopControls';
+import { findDuplicateTask, getAgentTodoCount, inferContentCategory, shouldGateCategory, getLoopLimits } from '@/lib/loopControls';
 import { logActivity } from '@/lib/activityLog';
 
 /**
@@ -107,8 +107,9 @@ export async function POST(req: NextRequest) {
 
     // WIP cap per assignee
     if (status === 'todo' && assigneeId) {
+      const limits = await getLoopLimits();
       const todoCount = await getAgentTodoCount(assigneeId);
-      if (todoCount >= LOOP_LIMITS.maxTodoPerAgent) status = 'backlog';
+      if (todoCount >= limits.maxTodoPerAgent) status = 'backlog';
     }
 
     await db.run(`

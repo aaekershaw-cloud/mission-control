@@ -5,7 +5,7 @@ import { getToolsForAgent, executeTool } from '@/lib/agentTools';
 import { processAutoReview } from '@/lib/autoApprove';
 import { logActivity } from '@/lib/activityLog';
 import { subscribeToTask, notifyTaskSubscribers, updateWorkingMemory } from '@/lib/notifications';
-import { inferContentCategory, LOOP_LIMITS, shouldGateCategory } from '@/lib/loopControls';
+import { inferContentCategory, shouldGateCategory, getLoopLimits } from '@/lib/loopControls';
 
 export interface ExecutionResult {
   id: string;
@@ -495,7 +495,8 @@ ${levelGuide}
     const cat = inferContentCategory(task.title as string, taskTags as string[]);
     const gated = await shouldGateCategory(cat as any);
     if (gated) {
-      await logActivity('content', `Skipped content pipeline create (gated): ${task.title}`, `Category ${cat} at/above staging threshold`, task.assignee_id as string, { taskId: task.id, category: cat, threshold: LOOP_LIMITS.stagingBlockThresholdPerCategory });
+      const limits = await getLoopLimits();
+      await logActivity('content', `Skipped content pipeline create (gated): ${task.title}`, `Category ${cat} at/above staging threshold`, task.assignee_id as string, { taskId: task.id, category: cat, threshold: limits.stagingBlockThresholdPerCategory });
     }
 
     if (gated) {

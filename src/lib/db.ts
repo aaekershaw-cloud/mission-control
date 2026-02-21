@@ -209,6 +209,16 @@ async function initializeDatabase() {
   `);
 
   await database.run(`
+    CREATE TABLE IF NOT EXISTS loop_controls (
+      id TEXT PRIMARY KEY DEFAULT 'singleton',
+      max_todo_per_agent INTEGER DEFAULT 2,
+      max_review_per_content_category INTEGER DEFAULT 3,
+      staging_block_threshold INTEGER DEFAULT 6,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await database.run(`
     CREATE TABLE IF NOT EXISTS auto_reviews (
       id TEXT PRIMARY KEY,
       task_id TEXT NOT NULL REFERENCES tasks(id),
@@ -269,6 +279,13 @@ async function initializeDatabase() {
   await database.run(`
     INSERT INTO queue_state (id, status, tasks_processed, tasks_remaining)
     VALUES ('singleton', 'idle', 0, 0)
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+  // Ensure loop_controls singleton row exists
+  await database.run(`
+    INSERT INTO loop_controls (id, max_todo_per_agent, max_review_per_content_category, staging_block_threshold)
+    VALUES ('singleton', 2, 3, 6)
     ON CONFLICT (id) DO NOTHING
   `);
 
